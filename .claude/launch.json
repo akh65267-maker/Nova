@@ -5,8 +5,8 @@
       "name": "taskmanager-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "url": "http://localhost:3000",
+      "port": 3100,
+      "url": "http://localhost:3100",
       "cwd": "../taskmanager-web"
     }
   ]
