@@ -12,6 +12,7 @@ using OrderService.Application.Sagas;
 using OrderService.Domain;
 using OrderService.Infrastructure;
 using OrderService.Infrastructure.Catalog;
+using OrderService.Infrastructure.Messaging;
 using OrderService.Infrastructure.Observability;
 using OrderService.Infrastructure.Persistence;
 using Serilog;
@@ -152,7 +153,13 @@ builder.Services.AddMassTransit(x =>
         // serialize access due to concurrent update) - that's an expected,
         // recoverable race, not a real failure, so retry a few times rather
         // than faulting the message.
+        //
+        // Outside it, a much longer retry for the database being unreachable altogether
+        // (registered second: the last retry registered is the outer one). Without it a
+        // restart of a few seconds parked messages in _error queues that nothing reads.
+        // See DatabaseOutage.
         cfg.UseMessageRetry(r => r.Intervals(100, 250, 500, 1000));
+        cfg.UseMessageRetry(DatabaseOutage.ConfigureRetry);
 
         // Stops hammering a dependency that's genuinely down (as opposed to
         // the momentary concurrency conflicts UseMessageRetry above handles)

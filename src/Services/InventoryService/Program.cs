@@ -77,6 +77,12 @@ builder.Services.AddMassTransit(x =>
         // then a circuit breaker stops hammering a dependency that's
         // genuinely down. Applies to every endpoint configured below.
         cfg.UseMessageRetry(r => r.Intervals(100, 500, 1000, 5000));
+
+        // Outside it, a much longer retry for the database being unreachable altogether (the
+        // last retry registered is the outer one). A reservation parked in an _error queue is
+        // not safe to replay once its order has been cancelled, so ride the outage out instead.
+        // See DatabaseOutage.
+        cfg.UseMessageRetry(DatabaseOutage.ConfigureRetry);
         cfg.UseCircuitBreaker(cb =>
         {
             cb.TrackingPeriod = TimeSpan.FromMinutes(1);
