@@ -33,7 +33,7 @@ Each service reads `Jwt:Key` at startup and throws `InvalidOperationException` i
 - **Roles** use inline policies only — `RequireAuthorization(policy => policy.RequireRole("Admin"))` on `POST /products`, `POST /inventory` and `POST /inventory/{productId}/restock`. There are no named policies, no `AddAuthorization(options => …)` configuration, and no claims transformation.
 - The role string compared at the resource (`"Admin"`) and the enum written into the token (`UserRole.Admin.ToString()`) are coupled by convention only.
 - `GET /inventory` and `GET /inventory/{productId}` have **no** `RequireAuthorization` — stock levels are public. `GET /products` is anonymous by design.
-- `GET /users` returns every user (id, email, display name, role) to **any** authenticated caller, not just admins.
+- `GET /users` (every user's id, email, display name and role) is **admin-only**. `GET /users/{id}` answers for your own id or for an admin; anyone else gets a 404, the same as for an id that does not exist (`UserAccess.CanView`).
 
 ## Admin accounts
 
@@ -48,5 +48,5 @@ Registration requires a password of at least 8 characters; there are no other co
 ## Secrets handling
 
 - Runtime secrets come from configuration: `Jwt:Key`, `RabbitMq:*`, `Admin:*`, connection strings. In compose they are all `${…}` env-var references sourced from `deploy/.env`, which is git-ignored (`deploy/.env.example` is the committed template).
-- **However, each service's committed `appsettings.json` still contains a placeholder development `Jwt:Key`, and UserService's contains placeholder admin credentials.** They are clearly labelled dev-only in code comments, but they are real fallback values that a deployment which forgets to override them would use. Flagged in [TODO.md](TODO.md).
+- The placeholder development `Jwt:Key` (and UserService's placeholder admin credentials) live in each service's `appsettings.Development.json`, not the base file, so outside Development a service has no key unless one is supplied and refuses to start (`Jwt:Key configuration is missing`). Separately, two tracked Development files contain the real local database and broker passwords; see [TODO.md](TODO.md).
 - No secret values are reproduced in this documentation.

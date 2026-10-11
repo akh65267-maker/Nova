@@ -13,7 +13,7 @@ Responsibilities below are verified from `Program.cs`, application services, dom
 
 ## UserService
 
-Endpoints: `GET /users`, `GET /users/{id}` (authenticated), `POST /users` (register), `POST /users/login`.
+Endpoints: `GET /users` (`Admin`), `GET /users/{id}` (your own id, or `Admin`; otherwise 404), `POST /users` (register), `POST /users/login`.
 
 - `UsersService.RegisterAsync`: enforces password ≥ 8 chars, hashes, rejects duplicate email, adds the user, publishes `UserRegistered`, then a **single** `SaveChangesAsync` commits row + outbox message together.
 - `LoginAsync`: looks up by email, verifies hash, returns `LoginResult(Token, ExpiresAtUtc)`. Failure throws `InvalidCredentialsException` — the same result whether the email exists or not.
