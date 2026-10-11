@@ -1,6 +1,6 @@
 # Admin dashboard, orders analytics and the frontend split
 
-Status: **a plan, nothing built.** Covers items 3 and 4 of "Found by hand-testing" in [TODO.md](TODO.md): admins should see orders analytics, and there should be an admin dashboard, which is also the point at which the frontend should become a monorepo with a separate admin app (the trigger recorded in the frontend repo's `docs/frontend.md`, Admin Panel).
+Status: **the monorepo extraction (section 4.3, steps 1 to 5) is built, on the `monorepo` branch of the frontend repository; the backend work and the dashboard itself are not.** The admin app (port 3200, its own sign-in, the products page) already exists, and the gateway's CORS list includes it. Covers items 3 and 4 of "Found by hand-testing" in [TODO.md](TODO.md): admins should see orders analytics, and there should be an admin dashboard, which is also the point at which the frontend should become a monorepo with a separate admin app (the trigger recorded in the frontend repo's `docs/frontend.md`, Admin Panel).
 
 Effort figures are rough guesses from the size of similar work in this repository, not measurements.
 
