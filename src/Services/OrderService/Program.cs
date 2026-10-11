@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using Observability;
 using OrderService;
 using OrderService.Application;
+using OrderService.Application.Analytics;
 using OrderService.Application.Catalog;
 using OrderService.Application.Orders;
 using OrderService.Application.Sagas;
@@ -45,6 +46,8 @@ builder.Services.AddHealthChecks()
 
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<OrdersService>();
+builder.Services.AddScoped<IOrderAnalytics, OrderAnalytics>();
+builder.Services.AddScoped<OrderAnalyticsService>();
 
 // Where prices come from. Required: an order service that cannot price an order must not
 // start quietly and then trust the caller instead.
@@ -215,6 +218,16 @@ app.MapGet("/orders/{id:guid}", async (
 
     return order is null ? Results.NotFound() : Results.Ok(order);
 }).RequireAuthorization();
+
+// Admin analytics. Only figures here, never personal data beyond a user id.
+app.MapGet("/orders/admin/summary", async (
+    DateTimeOffset? from,
+    DateTimeOffset? to,
+    OrderAnalyticsService analytics,
+    CancellationToken cancellationToken) =>
+{
+    return Results.Ok(await analytics.GetSummaryAsync(from, to, cancellationToken));
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
 
 app.MapPost("/orders", async (
     CreateOrderRequest request,

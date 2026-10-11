@@ -1,6 +1,6 @@
 # Admin dashboard, orders analytics and the frontend split
 
-Status: **the monorepo extraction (section 4.3, steps 1 to 5) is built, on the `monorepo` branch of the frontend repository; the backend work and the dashboard itself are not.** The admin app (port 3200, its own sign-in, the products page) already exists, and the gateway's CORS list includes it. Covers items 3 and 4 of "Found by hand-testing" in [TODO.md](TODO.md): admins should see orders analytics, and there should be an admin dashboard, which is also the point at which the frontend should become a monorepo with a separate admin app (the trigger recorded in the frontend repo's `docs/frontend.md`, Admin Panel).
+Status: **the monorepo extraction (section 4.3, steps 1 to 5) is built, on the `monorepo` branch of the frontend repository. Backend: the `ResolvedAtUtc` column and the three indexes (one migration), and `GET /orders/admin/summary`, are built and tested; the other endpoints are not. The dashboard shows the KPI cards from `summary` only; the rest of it, and the Orders section, are not built.** The admin app (port 3200, its own sign-in, the products page) exists, and the gateway's CORS list includes it. Covers items 3 and 4 of "Found by hand-testing" in [TODO.md](TODO.md): admins should see orders analytics, and there should be an admin dashboard, which is also the point at which the frontend should become a monorepo with a separate admin app (the trigger recorded in the frontend repo's `docs/frontend.md`, Admin Panel).
 
 Effort figures are rough guesses from the size of similar work in this repository, not measurements.
 
@@ -147,13 +147,13 @@ Steps 1 and 2 (backend) and step 3 (extraction) are independent and can happen i
 
 **Suggested first slice**, because it is small and proves the plumbing end to end: step 1, then one endpoint (`summary`), then the Dashboard showing just the KPI cards in the existing single-app admin layout. The extraction can happen under a working dashboard.
 
-## 6. Decisions needed
+## 6. Decisions (settled 2026-10-11)
 
-1. **Charts:** no dependency first (recommended), or `recharts` now?
-2. **Order of work:** backend first, extraction first, or the thin vertical slice above?
-3. **Revenue definition:** confirmed orders only, at the charged price, no tax or shipping (the only thing the data supports). Is that what you want to see?
-4. **Admin app on Azure:** a second Container App behind the same gateway/APIM (a route per app) or its own hostname? This does not block local work.
-5. **Order detail:** show the user id only, or add a lookup so the page can show the customer's name (one `GET /users/{id}` per order opened, admin-only, already allowed)?
+1. **Charts:** no dependency first. Hand-written KPI cards and CSS/SVG charts; `recharts` only if they need interaction that cannot be built that way.
+2. **Order of work:** the thin vertical slice: the migration, then `summary`, then the Dashboard's KPI cards. The remaining endpoints and sections follow.
+3. **Revenue:** the sum of quantity x unit price over **confirmed** orders at the price charged, with no tax, shipping, discounts or refunds, because none exist here. An order belongs to the period it was **created** in (not resolved in): `ResolvedAtUtc` is null for older orders, so it cannot be the key yet. Pending orders are not revenue yet; cancelled ones never are. The cancellation rate is cancelled / (confirmed + cancelled), leaving pending out.
+4. **Admin app on Azure:** a second Container App behind the same gateway, one route per app. Does not block local work; part of monorepo step 7.
+5. **Order detail:** shows the user id, and looks the customer up (`GET /users/{id}`, admin-only, one call per order opened) to show the name. If the lookup fails the id is still shown. The list shows ids only, so opening the Orders list costs no user lookups.
 
 ## 7. Not in scope
 

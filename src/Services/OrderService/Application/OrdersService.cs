@@ -105,6 +105,7 @@ public class OrdersService
             order.TotalAmount,
             order.Status,
             order.CreatedAtUtc,
-            order.CancellationReason);
+            order.CancellationReason,
+            order.ResolvedAtUtc);
     }
 }

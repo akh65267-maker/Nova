@@ -92,4 +92,62 @@ public class OrderStatusTransitionTests
         Assert.Throws<InvalidOperationException>(() => order.Confirm());
         Assert.Equal(OrderStatus.Cancelled, order.Status);
     }
+
+    [Fact]
+    public void NewOrder_HasNoResolvedTime()
+    {
+        Assert.Null(NewPendingOrder().ResolvedAtUtc);
+    }
+
+    [Fact]
+    public void Confirm_RecordsWhenTheOrderWasResolved()
+    {
+        var order = NewPendingOrder();
+        var before = DateTimeOffset.UtcNow;
+
+        order.Confirm();
+
+        Assert.NotNull(order.ResolvedAtUtc);
+        Assert.InRange(order.ResolvedAtUtc!.Value, before, DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public void Cancel_RecordsWhenTheOrderWasResolved()
+    {
+        var order = NewPendingOrder();
+        var before = DateTimeOffset.UtcNow;
+
+        order.Cancel("Out of stock.");
+
+        Assert.NotNull(order.ResolvedAtUtc);
+        Assert.InRange(order.ResolvedAtUtc!.Value, before, DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public void RepeatedConfirmAndCancel_NeverOverwriteTheResolvedTime()
+    {
+        var confirmed = NewPendingOrder();
+        confirmed.Confirm();
+        var first = confirmed.ResolvedAtUtc;
+        confirmed.Confirm();
+        Assert.Equal(first, confirmed.ResolvedAtUtc);
+
+        var cancelled = NewPendingOrder();
+        cancelled.Cancel("Out of stock.");
+        var second = cancelled.ResolvedAtUtc;
+        cancelled.Cancel("Timed out.");
+        Assert.Equal(second, cancelled.ResolvedAtUtc);
+    }
+
+    [Fact]
+    public void AConflictingTransition_DoesNotTouchTheResolvedTime()
+    {
+        var order = NewPendingOrder();
+        order.Confirm();
+        var resolved = order.ResolvedAtUtc;
+
+        Assert.Throws<InvalidOperationException>(() => order.Cancel("Out of stock."));
+
+        Assert.Equal(resolved, order.ResolvedAtUtc);
+    }
 }

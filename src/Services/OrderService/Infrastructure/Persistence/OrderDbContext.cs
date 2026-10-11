@@ -33,6 +33,12 @@ public class OrderDbContext : DbContext
 
             entity.Ignore(x => x.TotalAmount);
 
+            // The admin analytics filter and group by creation time and status; "my orders"
+            // filters by user. Without these every one of them scans the whole table.
+            entity.HasIndex(x => x.CreatedAtUtc);
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.HasIndex(x => new { x.UserId, x.CreatedAtUtc });
+
             entity.OwnsMany(x => x.Items, item =>
             {
                 item.WithOwner().HasForeignKey("OrderId");

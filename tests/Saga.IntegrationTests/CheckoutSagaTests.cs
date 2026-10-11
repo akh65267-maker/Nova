@@ -281,6 +281,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         var order = await WaitForResolutionAsync(orderId);
 
         Assert.Equal(OrderStatus.Confirmed, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
         Assert.Equal(6, await GetInventoryQuantityAsync(productId));
     }
 
@@ -300,6 +301,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         var order = await WaitForResolutionAsync(orderId);
 
         Assert.Equal(OrderStatus.Cancelled, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
 
         // The plentiful item's reservation must have been released once the
         // scarce item failed — this is the compensating transaction actually
@@ -1049,19 +1051,55 @@ public class CheckoutSagaTests : IAsyncLifetime
         return item.QuantityAvailable;
     }
 
-    private void AuthenticateAs(Guid userId)
+    private void AuthenticateAs(Guid userId, string? role = null)
     {
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: JwtIssuer,
             audience: JwtAudience,
-            claims: new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()) },
+            claims: role is null
+                ? new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()) }
+                : new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()), new Claim(ClaimTypes.Role, role) },
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: credentials);
 
         var rawToken = new JwtSecurityTokenHandler().WriteToken(token);
         _orderClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
+    }
+
+    [Fact]
+    public async Task AdminSummary_IsForAdministratorsOnly_AndRefusesBadRanges()
+    {
+        const string valid = "/orders/admin/summary?from=2026-10-01T00:00:00Z&to=2026-10-08T00:00:00Z";
+
+        _orderClient.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(valid)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid());
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(valid)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Customer");
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(valid)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
+        var ok = await _orderClient.GetAsync(valid);
+        Assert.Equal(System.Net.HttpStatusCode.OK, ok.StatusCode);
+        var body = await ok.Content.ReadAsStringAsync();
+        Assert.Contains("\"current\"", body);
+        Assert.Contains("\"previous\"", body);
+
+        foreach (var bad in new[]
+        {
+            "/orders/admin/summary",                                                                        // no range
+            "/orders/admin/summary?from=2026-10-01T00:00:00Z",                                              // no end
+            "/orders/admin/summary?from=2026-10-08T00:00:00Z&to=2026-10-01T00:00:00Z",                      // reversed
+            "/orders/admin/summary?from=2024-01-01T00:00:00Z&to=2026-01-01T00:00:00Z",                      // too long
+            "/orders/admin/summary?from=yesterday&to=today",                                                // not dates
+        })
+        {
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await _orderClient.GetAsync(bad)).StatusCode);
+        }
     }
 
     [Fact]
