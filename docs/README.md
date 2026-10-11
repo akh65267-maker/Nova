@@ -14,6 +14,7 @@ Compact, verified knowledge about this repository. **Source code is the ultimate
 | [decisions.md](decisions.md) | Architectural decisions evident from the implementation |
 | [TODO.md](TODO.md) | Confirmed issues, potential risks, open questions |
 | [azure-deployment.md](azure-deployment.md) | The Azure Container Apps template (`infra/`): mapping, environments, local-vs-Azure config, how to deploy, known limits, changes awaiting approval — nothing is deployed |
+| [admin-dashboard-plan.md](admin-dashboard-plan.md) | Plan (nothing built): orders analytics endpoints, the admin dashboard, and splitting the frontend into a monorepo with a separate admin app; what the data can and cannot answer; decisions needed |
 | [platform-plan.md](platform-plan.md) | Decisions on rate limiting, refresh tokens, CI/CD, dev tooling — phase 1 (metrics/Prometheus/Grafana) is implemented, the rest is not |
 
 Notes on scope:
