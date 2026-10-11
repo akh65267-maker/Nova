@@ -615,6 +615,129 @@ public class CheckoutSagaTests : IAsyncLifetime
         Assert.Equal(OrderStatus.Confirmed, (await WaitForResolutionAsync(orderId, timeoutSeconds: 5)).Status);
     }
 
+    // Makes every UPDATE of an order fail, the way a constraint, a deadlock victim or a full disk
+    // would, so "finalizing the order failed" can be tested without touching the code under test.
+    // P0001 is an ordinary error, not a database outage, so it gets the short retry and is then
+    // parked rather than waited out.
+    private const string FailOrderUpdates = """
+        CREATE OR REPLACE FUNCTION fail_order_update() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'injected failure' USING ERRCODE = 'P0001'; END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_order_update BEFORE UPDATE ON "Orders"
+            FOR EACH ROW EXECUTE FUNCTION fail_order_update();
+        """;
+
+    private const string AllowOrderUpdates = "DROP TRIGGER IF EXISTS fail_order_update ON \"Orders\";";
+
+    private async Task<OrderDto> GetOrderAsync(Guid orderId)
+    {
+        var response = await _orderClient.GetAsync($"/orders/{orderId}");
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<OrderDto>(_jsonOptions))!;
+    }
+
+    private async Task ExecuteOrderSqlAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(_orderDb.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task<int?> SagaResponseCountAsync(Guid orderId)
+    {
+        await using var connection = new NpgsqlConnection(_orderDb.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT \"ResponseCount\" FROM \"OrderSagaStates\" WHERE \"CorrelationId\" = @id", connection);
+        command.Parameters.AddWithValue("id", orderId);
+        return await command.ExecuteScalarAsync() as int?;
+    }
+
+    /// <summary>
+    /// Does finalizing a checkout commit atomically? FinalizeAsync saves the order from inside
+    /// the saga's handler, and the saga's own change (the response it just counted) is saved by
+    /// the saga repository. If those were two transactions, a failure between them could leave
+    /// the saga advanced and the order untouched, or the reverse. Here the order write fails: the
+    /// response that triggered it must not stay counted, the saga must not move on, and the
+    /// order must still be Pending, so that a retry or a replay starts from a consistent place.
+    /// </summary>
+    [Fact]
+    public async Task Finalizing_WhenTheOrderCannotBeSaved_RollsTheSagaBackWithIt()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await _inventoryHost!.StopAsync();
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) == "AwaitingStockReservation",
+            TimeSpan.FromSeconds(30), "the saga to start waiting for stock");
+
+        await ExecuteOrderSqlAsync(FailOrderUpdates);
+        try
+        {
+            _inventoryHost.Dispose();
+            _inventoryHost = _createInventoryHost();
+            await _inventoryHost.StartAsync();
+
+            await WaitUntilAsync(
+                async () => !_faults.IsEmpty,
+                TimeSpan.FromSeconds(60), "the stock response to fail on the order write");
+
+            Assert.Equal("AwaitingStockReservation", await SagaStateAsync(orderId));
+            Assert.Equal(0, await SagaResponseCountAsync(orderId));
+            Assert.Equal(OrderStatus.Pending, (await GetOrderAsync(orderId)).Status);
+        }
+        finally
+        {
+            await ExecuteOrderSqlAsync(AllowOrderUpdates);
+        }
+    }
+
+    /// <summary>
+    /// The same question for what the saga SENDS. When a checkout fails it publishes ReleaseStock
+    /// for what it had reserved and cancels the order. If the order write fails, the releases
+    /// must not go out: they would hand back stock for an order that is still waiting, and a
+    /// retry would publish them a second time.
+    /// </summary>
+    [Fact]
+    public async Task Finalizing_WhenTheOrderCannotBeSaved_DoesNotSendTheReleases()
+    {
+        var plentiful = Guid.NewGuid();
+        var scarce = Guid.NewGuid();
+        await SeedInventoryAsync(plentiful, quantityAvailable: 10);
+        await SeedInventoryAsync(scarce, quantityAvailable: 1);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await ExecuteOrderSqlAsync(FailOrderUpdates);
+        try
+        {
+            // The plentiful item reserves and the scarce one is refused, so the last response
+            // finalizes with a failure: ReleaseStock for the plentiful one, then the order write.
+            var orderId = await CreateOrderAsync(
+                new OrderItemRequest(plentiful, 3, 9.99m),
+                new OrderItemRequest(scarce, 5, 4.99m));
+
+            await WaitUntilAsync(
+                async () => !_faults.IsEmpty,
+                TimeSpan.FromSeconds(60), "the final response to fail on the order write");
+
+            // Give a release that should not exist time to arrive.
+            await Task.Delay(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(7, await GetInventoryQuantityAsync(plentiful));   // reserved, never released
+            Assert.Equal("AwaitingStockReservation", await SagaStateAsync(orderId));
+        }
+        finally
+        {
+            await ExecuteOrderSqlAsync(AllowOrderUpdates);
+        }
+    }
+
     private async Task SetOrderStatusAsync(Guid orderId, string status, string? reason)
     {
         await using var connection = new NpgsqlConnection(_orderDb.GetConnectionString());
