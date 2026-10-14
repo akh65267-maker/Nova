@@ -1133,6 +1133,40 @@ public class CheckoutSagaTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AdminOrderDetail_ShowsAnyCustomersOrder_ToAnAdministratorOnly()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        var customer = Guid.NewGuid();
+        AuthenticateAs(customer);
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 2, 9.99m));
+        await WaitForResolutionAsync(orderId);
+        var url = $"/orders/admin/orders/{orderId}";
+
+        // The owner's own endpoint is unchanged, and the admin one is closed to them.
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
+
+        _orderClient.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(url)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
+        var response = await _orderClient.GetAsync(url);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        var order = await response.Content.ReadFromJsonAsync<OrderDto>(_jsonOptions);
+        Assert.Equal(customer, order!.UserId);
+        Assert.Equal(OrderStatus.Confirmed, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
+        var line = Assert.Single(order.Items);
+        Assert.Equal((productId, 2, 9.99m), (line.ProductId, line.Quantity, line.UnitPrice));
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound,
+            (await _orderClient.GetAsync($"/orders/admin/orders/{Guid.NewGuid()}")).StatusCode);
+
+        // An administrator still cannot read another person's order through the ordinary endpoint.
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _orderClient.GetAsync($"/orders/{orderId}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Checkout_WithAPriceThatIsNotTheCatalogPrice_IsRefusedWith409AndCreatesNoOrder()
     {
         AuthenticateAs(Guid.NewGuid());

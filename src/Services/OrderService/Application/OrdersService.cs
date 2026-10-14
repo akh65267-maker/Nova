@@ -40,6 +40,14 @@ public class OrdersService
         return order is null || order.UserId != userId ? null : ToDto(order);
     }
 
+    /// <summary>Any order, for the admin console. The caller has already been checked for the Admin role.</summary>
+    public async Task<OrderDto?> GetForAdminAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var order = await _repo.GetByIdAsync(id, cancellationToken);
+
+        return order is null ? null : ToDto(order);
+    }
+
     public async Task<Guid> CreateAsync(CreateOrderRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
         var items = request.Items

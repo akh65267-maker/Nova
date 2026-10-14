@@ -253,6 +253,14 @@ admin.MapGet("/orders", async (
     OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
     Results.Ok(await analytics.GetOrdersAsync(status, from, to, page, pageSize, cancellationToken)));
 
+admin.MapGet("/orders/{id:guid}", async (
+    Guid id, OrdersService orders, CancellationToken cancellationToken) =>
+{
+    var order = await orders.GetForAdminAsync(id, cancellationToken);
+
+    return order is null ? Results.NotFound() : Results.Ok(order);
+});
+
 app.MapPost("/orders", async (
     CreateOrderRequest request,
     ClaimsPrincipal user,
