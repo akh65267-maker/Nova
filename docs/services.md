@@ -13,7 +13,7 @@ Responsibilities below are verified from `Program.cs`, application services, dom
 
 ## UserService
 
-Endpoints: `GET /users`, `GET /users/{id}` (authenticated), `POST /users` (register), `POST /users/login`.
+Endpoints: `GET /users` (`Admin`), `GET /users/{id}` (your own id, or `Admin`; otherwise 404), `POST /users` (register), `POST /users/login`.
 
 - `UsersService.RegisterAsync`: enforces password ≥ 8 chars, hashes, rejects duplicate email, adds the user, publishes `UserRegistered`, then a **single** `SaveChangesAsync` commits row + outbox message together.
 - `LoginAsync`: looks up by email, verifies hash, returns `LoginResult(Token, ExpiresAtUtc)`. Failure throws `InvalidCredentialsException` — the same result whether the email exists or not.
@@ -53,7 +53,7 @@ Endpoints: `GET /inventory`, `GET /inventory/{productId}` (**no authorization**)
 
 ## OrderService
 
-Endpoints (all authenticated): `GET /orders` (caller's orders only), `GET /orders/{id}`, `POST /orders`.
+Endpoints (all authenticated): `GET /orders` (caller's orders only), `GET /orders/{id}`, `POST /orders`. Admin only, all under `/orders/admin`: `summary`, `timeseries`, `cancellations`, `top-products`, `pending`, `orders` (a paged list), and `orders/{id}` (any customer's order with its lines; the ordinary `GET /orders/{id}` stays the owner's only). Every list one takes a UTC range (`from` inclusive, `to` exclusive, at most 366 days) except `pending`; a missing, reversed, too long or malformed value is a 400. `summary` is: (counts by status, revenue over confirmed orders, average order value and cancellation rate for the period and the equal period before it; `from` inclusive, `to` exclusive, UTC, at most 366 days; a missing, reversed or too long range is a 400). See [admin-dashboard-plan.md](admin-dashboard-plan.md).
 
 - `GetByIdAsync` returns `null` — surfaced as `404`, not `403` — when the order belongs to another user, so ownership is enforced without leaking existence.
 - `CreateAsync` builds `Order` + `OrderItem`s from the request, adds it, publishes `OrderSubmitted`, then one `SaveChangesAsync` commits the order and the outbox message atomically.

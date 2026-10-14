@@ -81,6 +81,7 @@ Pass with `--env NAME=VALUE` (or export them). Defaults in parentheses.
 | `USERS` (10) | all | Users logged in once and shared between VUs |
 | `PRODUCTS` (5) | all | Products the load is spread across. **`PRODUCTS=1` puts every order on one inventory row** - a flash sale, and a deliberately harsh case (see below) |
 | `MIX_BROWSE` (0.7), `MIX_BASKET` (0.2) | all | Traffic mix; the remainder is checkout |
+| `DASHBOARD_VUS` (0) | load | Administrators with the dashboard open beside the shoppers, polling every admin analytics endpoint (90-day ranges) every couple of seconds. Needs the admin credentials. Compare a run with `DASHBOARD_VUS=0` to see whether analytics slow checkouts; the report adds an `admin analytics` latency line |
 | `P95_BROWSE_MS`, `P95_DETAIL_MS`, `P95_ORDER_CREATE_MS`, `P95_CHECKOUT_MS`, `MAX_FAILED_RATE`, `MIN_CONFIRMED_RATE` | all | Pass/fail thresholds |
 | `LOADTEST_STOCK` (1000000) | all | Stock for the dedicated product |
 | `SETTLE_WAIT_S` (150) | run.sh | How long invariants may take to settle |

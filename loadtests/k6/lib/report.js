@@ -60,6 +60,8 @@ export function overview(data) {
     .map((s) => `${s} ${metric(data, `checkout_outcome{status:${s}}`).count ?? 0}`)
     .join(', ');
 
+  const analytics = metric(data, 'admin_analytics_ms');
+
   return [
     `  iterations        ${iterations.count ?? 0}${dropped.count ? `   (${dropped.count} DROPPED: the generator could not keep up or the system stopped accepting)` : ''}`,
     `  http requests     ${reqs.count ?? 0}   (${(reqs.rate ?? 0).toFixed(1)}/s)`,
@@ -67,6 +69,7 @@ export function overview(data) {
     `  latency           p50 ${ms(duration.med)}   p95 ${ms(duration['p(95)'])}   p99 ${ms(duration['p(99)'])}   max ${ms(duration.max)}`,
     `  checkout resolve  p50 ${ms(resolve.med)}   p95 ${ms(resolve['p(95)'])}   max ${ms(resolve.max)}   confirmed ${pct(confirmed.rate)}`,
     `  checkout outcomes ${outcomes}`,
+    ...(analytics.med !== undefined ? [`  admin analytics   p50 ${ms(analytics.med)}   p95 ${ms(analytics['p(95)'])}   max ${ms(analytics.max)}`] : []),
   ];
 }
 

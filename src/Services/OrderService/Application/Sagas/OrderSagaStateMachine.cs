@@ -65,27 +65,47 @@ public class OrderSagaStateMachine : MassTransitStateMachine<OrderSagaState>
             x.OnMissingInstance(m => m.Discard());
         });
 
+        // Only an order that is still Pending gets a checkout. A second OrderSubmitted for one
+        // that is not is a replay or a duplicate (a message parked in an _error queue during an
+        // outage, moved back by deploy/scripts/replay-errors.sh, for an order whose other copy
+        // already got through). Starting a saga for it would reserve the stock again, and
+        // nothing would ever release that: the order is already resolved. Reproduced by
+        // OrderSubmitted_ForAnOrderThatIsAlreadyConfirmed_DoesNotReserveStockAgain.
         Initially(
             When(OrderSubmittedEvent)
-                .Then(context =>
-                {
-                    context.Saga.CreatedAtUtc = DateTimeOffset.UtcNow;
-                    context.Saga.UserId = context.Message.UserId;
-                    context.Saga.TotalItems = context.Message.Items.Count;
-                    context.Saga.ResponseCount = 0;
-                    context.Saga.HasFailure = false;
-                    context.Saga.ItemsJson = JsonSerializer.Serialize(context.Message.Items);
-                    context.Saga.ReservedProductIdsJson = "[]";
-                })
-                .ThenAsync(async context =>
-                {
-                    foreach (var item in context.Message.Items)
-                    {
-                        await context.Publish(new ReserveStock(context.Message.OrderId, item.ProductId, item.Quantity));
-                    }
-                })
-                .TransitionTo(AwaitingStockReservation)
+                .IfElseAsync(IsOrderPendingAsync,
+                    start => start
+                        .Then(context =>
+                        {
+                            context.Saga.CreatedAtUtc = DateTimeOffset.UtcNow;
+                            context.Saga.UserId = context.Message.UserId;
+                            context.Saga.TotalItems = context.Message.Items.Count;
+                            context.Saga.ResponseCount = 0;
+                            context.Saga.HasFailure = false;
+                            context.Saga.ItemsJson = JsonSerializer.Serialize(context.Message.Items);
+                            context.Saga.ReservedProductIdsJson = "[]";
+                        })
+                        .ThenAsync(async context =>
+                        {
+                            foreach (var item in context.Message.Items)
+                            {
+                                await context.Publish(new ReserveStock(context.Message.OrderId, item.ProductId, item.Quantity));
+                            }
+                        })
+                        .TransitionTo(AwaitingStockReservation),
+                    skip => skip
+                        .Then(context => context.GetPayload<IServiceProvider>()
+                            .GetService<ILogger<OrderSagaStateMachine>>()?
+                            .LogWarning(
+                                "Ignoring OrderSubmitted for order {OrderId}: it is not a Pending order (already resolved, or unknown)",
+                                context.Message.OrderId))
+                        .Finalize())
         );
+
+        // The same message for a checkout that already exists is ignored, not faulted:
+        // starting over would send every ReserveStock again.
+        During(AwaitingStockReservation,
+            Ignore(OrderSubmittedEvent));
 
         During(AwaitingStockReservation,
             When(StockReservedEvent)
@@ -142,12 +162,23 @@ public class OrderSagaStateMachine : MassTransitStateMachine<OrderSagaState>
             // A late refusal took no stock, so there is nothing to undo.
             Ignore(StockReservationFailedEvent),
 
+            // A replayed OrderSubmitted: the checkout already ran and gave up.
+            Ignore(OrderSubmittedEvent),
+
             // The sweeper only selects AwaitingStockReservation rows, but a
             // timeout already in flight can still arrive; it has nothing to do.
             Ignore(CheckoutTimedOutEvent)
         );
 
         SetCompletedWhenFinalized();
+    }
+
+    private static async Task<bool> IsOrderPendingAsync(BehaviorContext<OrderSagaState, OrderSubmitted> context)
+    {
+        var repo = context.GetPayload<IServiceProvider>().GetRequiredService<IOrderRepository>();
+        var order = await repo.GetByIdAsync(context.Message.OrderId);
+
+        return order is { Status: OrderStatus.Pending };
     }
 
     private static async Task ReleaseLateReservationAsync(BehaviorContext<OrderSagaState, StockReserved> context)
@@ -192,11 +223,31 @@ public class OrderSagaStateMachine : MassTransitStateMachine<OrderSagaState>
         if (order is null)
             return;
 
+        // The opposite state: a confirmed order whose checkout failed or timed out, or a
+        // cancelled one whose checkout succeeded. Nothing this saga can do is right, and
+        // throwing is worse than leaving it: the failure path is driven by the sweeper, which
+        // republishes the timeout on every tick until the saga leaves AwaitingStockReservation,
+        // so a throw here faulted and parked a message every tick, forever (six such sagas,
+        // about 12 parked messages a minute, for days). So it is logged loudly, the order is
+        // left exactly as it is, and the saga ends like any other. It does NOT release stock:
+        // which of the two checkouts that touched this order owns the reservation is not
+        // knowable here, and releasing a confirmed order's stock would oversell it.
+        var conflicting = saga.HasFailure
+            ? order.Status == OrderStatus.Confirmed
+            : order.Status == OrderStatus.Cancelled;
+        if (conflicting)
+        {
+            provider.GetService<ILogger<OrderSagaStateMachine>>()?.LogError(
+                "Checkout for order {OrderId} ended {Outcome} but the order is already {Status}; leaving the order unchanged and finishing the checkout",
+                order.Id,
+                saga.HasFailure ? "unsuccessfully" : "successfully",
+                order.Status);
+            return;
+        }
+
         // Idempotent: if the order is already in the state this checkout would put it in
         // (a redelivery after the order's own write committed), there is nothing to save,
         // no stock to release a second time and nothing to count - the saga just finishes.
-        // The opposite state (confirmed order, failed checkout) still throws: that is a
-        // conflict worth a fault, not a repeat.
         bool changed;
         if (saga.HasFailure)
         {

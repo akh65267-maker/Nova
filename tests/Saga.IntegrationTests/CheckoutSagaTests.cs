@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using Contracts.Commands;
+using Contracts.Common;
 using Contracts.IntegrationEvents;
 using MassTransit;
 using Microsoft.AspNetCore.Hosting;
@@ -62,7 +63,21 @@ public class CheckoutSagaTests : IAsyncLifetime
     // Using the same image tags as docker-compose.yml (postgres:17, rabbitmq:3-management)
     // rather than -alpine variants: the alpine RabbitMQ tag hit an "exec format error"
     // (architecture mismatch) on this machine, while these tags are already proven to work.
-    private readonly PostgreSqlContainer _orderDb = new PostgreSqlBuilder().WithImage("postgres:17").Build();
+    // A fixed host port, chosen once, so the order database can be stopped and started again
+    // (the outage test) and still be found at the same address by the running OrderService.
+    private readonly PostgreSqlContainer _orderDb = new PostgreSqlBuilder()
+        .WithImage("postgres:17")
+        .WithPortBinding(FreeTcpPort(), 5432)
+        .Build();
+
+    private static int FreeTcpPort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
     private readonly PostgreSqlContainer _inventoryDb = new PostgreSqlBuilder().WithImage("postgres:17").Build();
     private readonly RabbitMqContainer _rabbitMq = new RabbitMqBuilder().WithImage("rabbitmq:3-management").Build();
 
@@ -140,7 +155,7 @@ public class CheckoutSagaTests : IAsyncLifetime
             // resolve in well under a second - so it is long enough not to
             // cancel a merely slow one on a cold runner, while keeping the
             // timeout test to roughly its own duration.
-            builder.UseSetting("Checkout:Timeout", "00:00:20");
+            builder.UseSetting("Checkout:Timeout", "00:00:40");
             builder.UseSetting("Checkout:SweepInterval", "00:00:01");
 
             // How long a timed-out saga survives after its deadline. It has to
@@ -266,6 +281,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         var order = await WaitForResolutionAsync(orderId);
 
         Assert.Equal(OrderStatus.Confirmed, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
         Assert.Equal(6, await GetInventoryQuantityAsync(productId));
     }
 
@@ -285,6 +301,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         var order = await WaitForResolutionAsync(orderId);
 
         Assert.Equal(OrderStatus.Cancelled, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
 
         // The plentiful item's reservation must have been released once the
         // scarce item failed — this is the compensating transaction actually
@@ -359,7 +376,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         // then the ReleaseStock the saga sent back for it. Stock alone would not
         // prove it, since it reads 10 both before the reservation and after the release.
         await WaitUntilAsync(
-            async () => await CountInventoryInboxAsync() >= 2 && await GetInventoryQuantityAsync(productId) == 10,
+            async () => await CountInventoryConsumedAsync() >= 2 && await GetInventoryQuantityAsync(productId) == 10,
             TimeSpan.FromSeconds(45),
             "the late ReserveStock to be consumed and released (2 inbox rows, stock back to 10)");
 
@@ -452,6 +469,275 @@ public class CheckoutSagaTests : IAsyncLifetime
 
         // The plentiful item was reserved (10 - 3) and nothing released it again.
         Assert.Equal(7, await GetInventoryQuantityAsync(plentiful));
+    }
+
+    /// <summary>
+    /// What replaying an _error queue can do. An OrderSubmitted that was parked during an
+    /// outage may arrive for an order that has since been resolved (its other copy got
+    /// through, say). A new saga for it would reserve the stock a second time, and nothing
+    /// would ever release it. The saga must refuse to start for an order that is not Pending.
+    /// </summary>
+    [Fact]
+    public async Task OrderSubmitted_ForAnOrderThatIsAlreadyConfirmed_DoesNotReserveStockAgain()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        Assert.Equal(OrderStatus.Confirmed, (await WaitForResolutionAsync(orderId)).Status);
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) is null,
+            TimeSpan.FromSeconds(15), "the first saga to finish");
+        Assert.Equal(6, await GetInventoryQuantityAsync(productId));
+
+        // The replay: the same order submitted again, as a new message.
+        var bus = _orderFactory!.Services.GetRequiredService<IBus>();
+        await bus.Publish(new OrderSubmitted(
+            orderId, Guid.NewGuid(), new List<OrderLineItem> { new(productId, 4, 9.99m) }));
+
+        // Long enough for a saga to start, reserve and come back if it were going to.
+        await Task.Delay(TimeSpan.FromSeconds(6));
+
+        Assert.True(_faults.IsEmpty, $"the replay faulted: {_faults.FirstOrDefault()}");
+        Assert.Null(await SagaStateAsync(orderId));
+        Assert.Equal(6, await GetInventoryQuantityAsync(productId));
+        Assert.Equal(OrderStatus.Confirmed, (await WaitForResolutionAsync(orderId, timeoutSeconds: 5)).Status);
+    }
+
+    /// <summary>
+    /// The same message arriving while the saga for that order is still waiting. It must be
+    /// ignored: starting over would send every ReserveStock again.
+    /// </summary>
+    [Fact]
+    public async Task OrderSubmitted_WhileTheCheckoutIsStillInFlight_IsIgnored()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await _inventoryHost!.StopAsync();
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) == "AwaitingStockReservation",
+            TimeSpan.FromSeconds(30), "the saga to start waiting for stock");
+
+        var bus = _orderFactory!.Services.GetRequiredService<IBus>();
+        await bus.Publish(new OrderSubmitted(
+            orderId, Guid.NewGuid(), new List<OrderLineItem> { new(productId, 4, 9.99m) }));
+        await Task.Delay(TimeSpan.FromSeconds(4));
+
+        _inventoryHost.Dispose();
+        _inventoryHost = _createInventoryHost();
+        await _inventoryHost.StartAsync();
+
+        Assert.Equal(OrderStatus.Confirmed, (await WaitForResolutionAsync(orderId)).Status);
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) is null,
+            TimeSpan.FromSeconds(15), "the saga to finish");
+
+        Assert.True(_faults.IsEmpty, $"the duplicate faulted: {_faults.FirstOrDefault()}");
+        Assert.Equal(6, await GetInventoryQuantityAsync(productId));   // reserved once, not twice
+    }
+
+    /// <summary>
+    /// The incident in miniature. InventoryService answers while the order database is down:
+    /// the saga cannot record StockReserved. With the old retry (about 2 s) the message was
+    /// parked in an _error queue, the saga never heard, the checkout timed out and the
+    /// reservation was lost. The retry now rides out an outage of a few minutes, so the same
+    /// message simply succeeds once the database is back.
+    /// </summary>
+    [Fact]
+    public async Task Checkout_WhenTheOrderDatabaseIsDownForSomeSeconds_StillCompletes()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await _inventoryHost!.StopAsync();
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) == "AwaitingStockReservation",
+            TimeSpan.FromSeconds(30), "the saga to start waiting for stock");
+
+        // The outage begins, then InventoryService comes up and answers into it.
+        await _orderDb.StopAsync();
+
+        _inventoryHost.Dispose();
+        _inventoryHost = _createInventoryHost();
+        await _inventoryHost.StartAsync();
+
+        // Long enough that a retry of about 2 s has long since given up, well inside the
+        // checkout timeout, so the only thing that can save the order is the retry.
+        await Task.Delay(TimeSpan.FromSeconds(8));
+        await _orderDb.StartAsync();
+
+        var order = await WaitForResolutionAsync(orderId, timeoutSeconds: 120);
+
+        Assert.True(_faults.IsEmpty, $"a message was parked instead of retried: {_faults.FirstOrDefault()}");
+        Assert.Equal(OrderStatus.Confirmed, order.Status);
+        Assert.Equal(6, await GetInventoryQuantityAsync(productId));
+    }
+
+    /// <summary>
+    /// A checkout that can no longer reach its outcome must still END. Here the order was
+    /// confirmed behind the saga's back (a duplicate checkout is how this happened for real:
+    /// six such sagas faulted on every sweeper tick, about 12 parked messages a minute, for
+    /// days), and then the checkout times out. Cancelling a confirmed order is a conflict; it
+    /// used to throw, so the saga stayed in AwaitingStockReservation and the sweeper
+    /// republished the timeout on every tick, each one faulting again. Now it is logged, the
+    /// order is left as it is, and the saga moves on to be purged like any timed-out checkout.
+    /// </summary>
+    [Fact]
+    public async Task Checkout_WhenTheOrderWasConfirmedElsewhereAndTheCheckoutTimesOut_EndsInsteadOfFaultingForever()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await _inventoryHost!.StopAsync();
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) == "AwaitingStockReservation",
+            TimeSpan.FromSeconds(30), "the saga to start waiting for stock");
+
+        await SetOrderStatusAsync(orderId, "Confirmed", reason: null);
+
+        // InventoryService stays down, so the only thing left to happen is the timeout.
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) != "AwaitingStockReservation",
+            TimeSpan.FromSeconds(90), "the timed-out checkout to leave AwaitingStockReservation");
+
+        Assert.True(_faults.IsEmpty, $"the timeout faulted: {_faults.FirstOrDefault()}");
+        Assert.Equal("TimedOut", await SagaStateAsync(orderId));
+        Assert.Equal(OrderStatus.Confirmed, (await WaitForResolutionAsync(orderId, timeoutSeconds: 5)).Status);
+    }
+
+    // Makes every UPDATE of an order fail, the way a constraint, a deadlock victim or a full disk
+    // would, so "finalizing the order failed" can be tested without touching the code under test.
+    // P0001 is an ordinary error, not a database outage, so it gets the short retry and is then
+    // parked rather than waited out.
+    private const string FailOrderUpdates = """
+        CREATE OR REPLACE FUNCTION fail_order_update() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'injected failure' USING ERRCODE = 'P0001'; END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_order_update BEFORE UPDATE ON "Orders"
+            FOR EACH ROW EXECUTE FUNCTION fail_order_update();
+        """;
+
+    private const string AllowOrderUpdates = "DROP TRIGGER IF EXISTS fail_order_update ON \"Orders\";";
+
+    private async Task<OrderDto> GetOrderAsync(Guid orderId)
+    {
+        var response = await _orderClient.GetAsync($"/orders/{orderId}");
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<OrderDto>(_jsonOptions))!;
+    }
+
+    private async Task ExecuteOrderSqlAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(_orderDb.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task<int?> SagaResponseCountAsync(Guid orderId)
+    {
+        await using var connection = new NpgsqlConnection(_orderDb.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT \"ResponseCount\" FROM \"OrderSagaStates\" WHERE \"CorrelationId\" = @id", connection);
+        command.Parameters.AddWithValue("id", orderId);
+        return await command.ExecuteScalarAsync() as int?;
+    }
+
+    /// <summary>
+    /// Does finalizing a checkout commit atomically? FinalizeAsync saves the order from inside
+    /// the saga's handler, and the saga's own change (the response it just counted) is saved by
+    /// the saga repository. If those were two transactions, a failure between them could leave
+    /// the saga advanced and the order untouched, or the reverse. Here the order write fails: the
+    /// response that triggered it must not stay counted, the saga must not move on, and the
+    /// order must still be Pending, so that a retry or a replay starts from a consistent place.
+    /// </summary>
+    [Fact]
+    public async Task Finalizing_WhenTheOrderCannotBeSaved_RollsTheSagaBackWithIt()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await _inventoryHost!.StopAsync();
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 4, 9.99m));
+        await WaitUntilAsync(
+            async () => await SagaStateAsync(orderId) == "AwaitingStockReservation",
+            TimeSpan.FromSeconds(30), "the saga to start waiting for stock");
+
+        await ExecuteOrderSqlAsync(FailOrderUpdates);
+        try
+        {
+            _inventoryHost.Dispose();
+            _inventoryHost = _createInventoryHost();
+            await _inventoryHost.StartAsync();
+
+            await WaitUntilAsync(
+                async () => !_faults.IsEmpty,
+                TimeSpan.FromSeconds(60), "the stock response to fail on the order write");
+
+            Assert.Equal("AwaitingStockReservation", await SagaStateAsync(orderId));
+            Assert.Equal(0, await SagaResponseCountAsync(orderId));
+            Assert.Equal(OrderStatus.Pending, (await GetOrderAsync(orderId)).Status);
+        }
+        finally
+        {
+            await ExecuteOrderSqlAsync(AllowOrderUpdates);
+        }
+    }
+
+    /// <summary>
+    /// The same question for what the saga SENDS. When a checkout fails it publishes ReleaseStock
+    /// for what it had reserved and cancels the order. If the order write fails, the releases
+    /// must not go out: they would hand back stock for an order that is still waiting, and a
+    /// retry would publish them a second time.
+    /// </summary>
+    [Fact]
+    public async Task Finalizing_WhenTheOrderCannotBeSaved_DoesNotSendTheReleases()
+    {
+        var plentiful = Guid.NewGuid();
+        var scarce = Guid.NewGuid();
+        await SeedInventoryAsync(plentiful, quantityAvailable: 10);
+        await SeedInventoryAsync(scarce, quantityAvailable: 1);
+        AuthenticateAs(Guid.NewGuid());
+        _faults.Clear();
+
+        await ExecuteOrderSqlAsync(FailOrderUpdates);
+        try
+        {
+            // The plentiful item reserves and the scarce one is refused, so the last response
+            // finalizes with a failure: ReleaseStock for the plentiful one, then the order write.
+            var orderId = await CreateOrderAsync(
+                new OrderItemRequest(plentiful, 3, 9.99m),
+                new OrderItemRequest(scarce, 5, 4.99m));
+
+            await WaitUntilAsync(
+                async () => !_faults.IsEmpty,
+                TimeSpan.FromSeconds(60), "the final response to fail on the order write");
+
+            // Give a release that should not exist time to arrive.
+            await Task.Delay(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(7, await GetInventoryQuantityAsync(plentiful));   // reserved, never released
+            Assert.Equal("AwaitingStockReservation", await SagaStateAsync(orderId));
+        }
+        finally
+        {
+            await ExecuteOrderSqlAsync(AllowOrderUpdates);
+        }
     }
 
     private async Task SetOrderStatusAsync(Guid orderId, string status, string? reason)
@@ -649,12 +935,16 @@ public class CheckoutSagaTests : IAsyncLifetime
         await SeedInventoryAsync(productId, quantityAvailable: stock);
         _faults.Clear();
 
+        // The inbox table is shared by every test in this class, so wait for it to grow by this
+        // test's messages, not to reach a total that earlier tests may already have passed.
+        var inboxBefore = await CountInventoryConsumedAsync();
+
         var bus = _orderFactory!.Services.GetRequiredService<IBus>();
         await Task.WhenAll(Enumerable.Range(0, reservations)
             .Select(_ => bus.Publish(new ReserveStock(Guid.NewGuid(), productId, 1))));
 
         await WaitUntilAsync(
-            async () => await CountInventoryInboxAsync() >= reservations || !_faults.IsEmpty,
+            async () => await CountInventoryConsumedAsync() >= inboxBefore + reservations || !_faults.IsEmpty,
             TimeSpan.FromSeconds(60),
             $"all {reservations} reservations to be processed");
 
@@ -677,6 +967,8 @@ public class CheckoutSagaTests : IAsyncLifetime
         await SeedInventoryAsync(productId, quantityAvailable: stock);
         _faults.Clear();
 
+        var inboxBefore = await CountInventoryConsumedAsync();
+
         var bus = _orderFactory!.Services.GetRequiredService<IBus>();
         var messages = Enumerable.Range(0, pairs).SelectMany(_ => new Func<Task>[]
         {
@@ -686,7 +978,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         await Task.WhenAll(messages.Select(send => send()));
 
         await WaitUntilAsync(
-            async () => await CountInventoryInboxAsync() >= pairs * 2 || !_faults.IsEmpty,
+            async () => await CountInventoryConsumedAsync() >= inboxBefore + pairs * 2 || !_faults.IsEmpty,
             TimeSpan.FromSeconds(60),
             $"all {pairs * 2} messages to be processed");
 
@@ -723,7 +1015,12 @@ public class CheckoutSagaTests : IAsyncLifetime
             .FirstOrDefaultAsync();
     }
 
-    private async Task<int> CountInventoryInboxAsync()
+    /// <summary>
+    /// How many messages InventoryService has FINISHED handling. An inbox row appears when a
+    /// message is received and is only stamped Consumed when its handler is done, so counting
+    /// rows would report "processed" while consumers are still queued on the stock row lock.
+    /// </summary>
+    private async Task<int> CountInventoryConsumedAsync()
     {
         var options = new DbContextOptionsBuilder<InventoryDbContext>()
             .UseNpgsql(_inventoryDb.GetConnectionString())
@@ -731,7 +1028,7 @@ public class CheckoutSagaTests : IAsyncLifetime
         await using var db = new InventoryDbContext(options);
 
         return await db.Database
-            .SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM \"InboxState\"")
+            .SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM \"InboxState\" WHERE \"Consumed\" IS NOT NULL")
             .SingleAsync();
     }
 
@@ -754,19 +1051,119 @@ public class CheckoutSagaTests : IAsyncLifetime
         return item.QuantityAvailable;
     }
 
-    private void AuthenticateAs(Guid userId)
+    private void AuthenticateAs(Guid userId, string? role = null)
     {
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: JwtIssuer,
             audience: JwtAudience,
-            claims: new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()) },
+            claims: role is null
+                ? new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()) }
+                : new[] { new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()), new Claim(ClaimTypes.Role, role) },
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: credentials);
 
         var rawToken = new JwtSecurityTokenHandler().WriteToken(token);
         _orderClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
+    }
+
+
+    private const string AdminRange = "from=2026-10-01T00:00:00Z&to=2026-10-08T00:00:00Z";
+
+    // Every admin analytics endpoint, with the shape its answer must have.
+    private static readonly (string Url, string Contains)[] AdminEndpoints =
+    {
+        ($"/orders/admin/summary?{AdminRange}", "\"current\""),
+        ($"/orders/admin/timeseries?{AdminRange}", "\"days\""),
+        ($"/orders/admin/cancellations?{AdminRange}", "["),
+        ($"/orders/admin/top-products?{AdminRange}&by=revenue&limit=5", "["),
+        ($"/orders/admin/pending", "["),
+        ($"/orders/admin/orders?{AdminRange}&status=Pending&page=1&pageSize=10", "\"total\""),
+    };
+
+    [Fact]
+    public async Task AdminAnalytics_IsForAdministratorsOnly()
+    {
+        _orderClient.DefaultRequestHeaders.Authorization = null;
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(url)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid());
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Customer");
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
+        foreach (var (url, contains) in AdminEndpoints)
+        {
+            var response = await _orderClient.GetAsync(url);
+            Assert.True(response.IsSuccessStatusCode, $"{url} answered {(int)response.StatusCode}");
+            Assert.Contains(contains, await response.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
+    public async Task AdminAnalytics_RefusesBadParametersWith400()
+    {
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
+
+        foreach (var bad in new[]
+        {
+            "/orders/admin/summary",                                                                        // no range
+            "/orders/admin/summary?from=2026-10-01T00:00:00Z",                                              // no end
+            "/orders/admin/summary?from=2026-10-08T00:00:00Z&to=2026-10-01T00:00:00Z",                      // reversed
+            "/orders/admin/summary?from=2024-01-01T00:00:00Z&to=2026-01-01T00:00:00Z",                      // too long
+            "/orders/admin/summary?from=yesterday&to=today",                                                // not dates
+            $"/orders/admin/timeseries?{AdminRange}&bucket=hour",
+            $"/orders/admin/top-products?{AdminRange}&by=profit",
+            $"/orders/admin/top-products?{AdminRange}&limit=100000",
+            "/orders/admin/pending?limit=100000",
+            "/orders/admin/pending?minAgeSeconds=-5",
+            $"/orders/admin/orders?{AdminRange}&pageSize=100000",
+            $"/orders/admin/orders?{AdminRange}&status=Shipped",
+            $"/orders/admin/orders?{AdminRange}&page=0",
+        })
+        {
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await _orderClient.GetAsync(bad)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task AdminOrderDetail_ShowsAnyCustomersOrder_ToAnAdministratorOnly()
+    {
+        var productId = Guid.NewGuid();
+        await SeedInventoryAsync(productId, quantityAvailable: 10);
+        var customer = Guid.NewGuid();
+        AuthenticateAs(customer);
+        var orderId = await CreateOrderAsync(new OrderItemRequest(productId, 2, 9.99m));
+        await WaitForResolutionAsync(orderId);
+        var url = $"/orders/admin/orders/{orderId}";
+
+        // The owner's own endpoint is unchanged, and the admin one is closed to them.
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
+
+        _orderClient.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(url)).StatusCode);
+
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
+        var response = await _orderClient.GetAsync(url);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        var order = await response.Content.ReadFromJsonAsync<OrderDto>(_jsonOptions);
+        Assert.Equal(customer, order!.UserId);
+        Assert.Equal(OrderStatus.Confirmed, order.Status);
+        Assert.NotNull(order.ResolvedAtUtc);
+        var line = Assert.Single(order.Items);
+        Assert.Equal((productId, 2, 9.99m), (line.ProductId, line.Quantity, line.UnitPrice));
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound,
+            (await _orderClient.GetAsync($"/orders/admin/orders/{Guid.NewGuid()}")).StatusCode);
+
+        // An administrator still cannot read another person's order through the ordinary endpoint.
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _orderClient.GetAsync($"/orders/{orderId}")).StatusCode);
     }
 
     [Fact]

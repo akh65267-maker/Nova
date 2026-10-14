@@ -13,6 +13,9 @@ services:
       ReverseProxy__Clusters__inventory-cluster__Destinations__destination1__Address: http://inventory-api:8080/
       ReverseProxy__Clusters__basket-cluster__Destinations__destination1__Address: http://basket-api:8080/
       ReverseProxy__Clusters__order-cluster__Destinations__destination1__Address: http://order-api:8080/
+      # The browser origins allowed to call the API: the shop and the admin app.
+      Cors__AllowedOrigins__0: http://localhost:3100
+      Cors__AllowedOrigins__1: http://localhost:3200
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     ports:

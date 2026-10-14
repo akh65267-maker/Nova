@@ -106,4 +106,22 @@ jobs:
           --no-restore
           --configuration Release
           --logger "console;verbosity=normal"
+          --logger "trx;LogFileName=saga.trx"
         timeout-minutes: 15
+
+      # The log is only visible when signed in to GitHub; annotations are on the run itself, so a
+      # failure can be named without opening it. Reads the .trx written above.
+      - name: Name the failed tests
+        if: failure()
+        run: |
+          node -e '
+            const fs = require("fs");
+            const files = require("child_process").execSync("find tests -name \"*.trx\"").toString().split("\n").filter(Boolean);
+            for (const f of files) {
+              const xml = fs.readFileSync(f, "utf8");
+              const failed = /<UnitTestResult[^>]*testName="([^"]*)"[^>]*outcome="Failed"[\s\S]*?<Message>([\s\S]*?)<\/Message>/g;
+              for (const m of xml.matchAll(failed)) {
+                const message = m[2].split("\n").slice(0, 6).join(" | ").replace(/[%\r\n]/g, " ").slice(0, 500);
+                console.log("::error title=Failed test::" + m[1] + ": " + message);
+              }
+            }'

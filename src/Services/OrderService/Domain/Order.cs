@@ -9,6 +9,9 @@ public class Order
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public string? CancellationReason { get; private set; }
 
+    /// <summary>When the order was confirmed or cancelled; null while pending, and for orders resolved before this was recorded.</summary>
+    public DateTimeOffset? ResolvedAtUtc { get; private set; }
+
     public decimal TotalAmount => Items.Sum(i => i.Quantity * i.UnitPrice);
 
     private Order()
@@ -42,6 +45,7 @@ public class Order
             throw new InvalidOperationException($"Cannot confirm an order in status '{Status}'.");
 
         Status = OrderStatus.Confirmed;
+        ResolvedAtUtc = DateTimeOffset.UtcNow;
         return true;
     }
 
@@ -60,6 +64,7 @@ public class Order
 
         Status = OrderStatus.Cancelled;
         CancellationReason = reason;
+        ResolvedAtUtc = DateTimeOffset.UtcNow;
         return true;
     }
 }

@@ -61,6 +61,24 @@ Not provided by this implementation — do not assume it:
 - **No dead-letter/fault handling of its own.** No `ReceiveEndpoint` fault consumers, no `_error` queue monitoring, no `IConsumeObserver`. Messages that exhaust retries go to MassTransit's default `_error` queue and are not surfaced anywhere.
 - **No message scheduler.** No `MassTransit` scheduler is configured. The saga's timeout is driven by a database sweep that publishes `CheckoutTimedOut` instead (see [order-flow.md](order-flow.md)). A timed-out saga is kept in a `TimedOut` state for a retention window so a reservation that completes late can still be released.
 
+## Retries and parked messages
+
+A message that fails is retried in process first. Two retries are stacked on every OrderService and InventoryService endpoint, and the later-registered one is the outer:
+
+| Retry | Handles | Schedule | Why |
+|---|---|---|---|
+| Short (inner) | every exception | 4 attempts over about 2 s (inventory: about 7 s) | Serialization conflicts (`40001`) between concurrent saga messages resolve in milliseconds |
+| Outage (outer, `DatabaseOutage`) | only "the database is not there": refused/dropped connection, timeout, server shutting down, in recovery (`57P03`), out of connections (`53300`) | 18 attempts, 1 s growing to 30 s, about 5.7 min in total | A restart outlasts the short retry; parking the message instead loses the work |
+
+Anything still failing after both is parked in `<queue>_error`. **Nothing consumes those queues.** Look at them with `deploy/scripts/replay-errors.sh --list`; trace one order with `deploy/scripts/diagnose-order.sh <order-id>`.
+
+### Replaying a parked queue
+
+`deploy/scripts/replay-errors.sh <queue>_error` (or `--all`, `--dry-run`) moves every message back to its input queue using the shovel plugin, headers and body intact, acknowledging each only after the destination has it. It replays **everything**, so:
+- Do it soon after the outage, with the services healthy. A `ReserveStock` for an order that was cancelled meanwhile takes stock for nothing; whether that gets released depends on the saga still existing (`Checkout:TimedOutRetention`, 24 h by default, 15 minutes in load tests).
+- It is safe for `OrderSagaState_error`: the saga starts only for a Pending order, ignores a duplicate for a live checkout, releases a late reservation for a timed-out one, discards events for a saga that is gone, and ends a checkout that conflicts with an already-resolved order.
+- A message that fails for a reason other than the outage fails again and comes back; the counts printed afterwards show it.
+
 ## Connection configuration
 
 `RabbitMq:Host` / `RabbitMq:Username` / `RabbitMq:Password`, defaulting to `localhost` and the RabbitMQ guest account when unset. OrderService additionally reads `RabbitMq:Port` (default 5672) — the other services hardcode the default port in their `cfg.Host(...)` overload, which is why the integration test can only redirect OrderService to an arbitrary Testcontainers port and must configure Inventory's bus itself.

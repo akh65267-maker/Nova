@@ -6,12 +6,14 @@ using Microsoft.IdentityModel.Tokens;
 using Observability;
 using OrderService;
 using OrderService.Application;
+using OrderService.Application.Analytics;
 using OrderService.Application.Catalog;
 using OrderService.Application.Orders;
 using OrderService.Application.Sagas;
 using OrderService.Domain;
 using OrderService.Infrastructure;
 using OrderService.Infrastructure.Catalog;
+using OrderService.Infrastructure.Messaging;
 using OrderService.Infrastructure.Observability;
 using OrderService.Infrastructure.Persistence;
 using Serilog;
@@ -44,6 +46,8 @@ builder.Services.AddHealthChecks()
 
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<OrdersService>();
+builder.Services.AddScoped<IOrderAnalytics, OrderAnalytics>();
+builder.Services.AddScoped<OrderAnalyticsService>();
 
 // Where prices come from. Required: an order service that cannot price an order must not
 // start quietly and then trust the caller instead.
@@ -152,7 +156,13 @@ builder.Services.AddMassTransit(x =>
         // serialize access due to concurrent update) - that's an expected,
         // recoverable race, not a real failure, so retry a few times rather
         // than faulting the message.
+        //
+        // Outside it, a much longer retry for the database being unreachable altogether
+        // (registered second: the last retry registered is the outer one). Without it a
+        // restart of a few seconds parked messages in _error queues that nothing reads.
+        // See DatabaseOutage.
         cfg.UseMessageRetry(r => r.Intervals(100, 250, 500, 1000));
+        cfg.UseMessageRetry(DatabaseOutage.ConfigureRetry);
 
         // Stops hammering a dependency that's genuinely down (as opposed to
         // the momentary concurrency conflicts UseMessageRetry above handles)
@@ -208,6 +218,48 @@ app.MapGet("/orders/{id:guid}", async (
 
     return order is null ? Results.NotFound() : Results.Ok(order);
 }).RequireAuthorization();
+
+// Admin analytics. Only figures here, never personal data beyond a user id. The whole group
+// requires the Admin role, so a new endpoint added to it cannot forget the check.
+var admin = app.MapGroup("/orders/admin").RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+admin.MapGet("/summary", async (
+    DateTimeOffset? from, DateTimeOffset? to,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetSummaryAsync(from, to, cancellationToken)));
+
+admin.MapGet("/timeseries", async (
+    DateTimeOffset? from, DateTimeOffset? to, string? bucket,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetTimeseriesAsync(from, to, bucket, cancellationToken)));
+
+admin.MapGet("/cancellations", async (
+    DateTimeOffset? from, DateTimeOffset? to,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetCancellationsAsync(from, to, cancellationToken)));
+
+admin.MapGet("/top-products", async (
+    DateTimeOffset? from, DateTimeOffset? to, string? by, int? limit,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetTopProductsAsync(from, to, by, limit, cancellationToken)));
+
+admin.MapGet("/pending", async (
+    int? minAgeSeconds, int? limit,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetPendingAsync(minAgeSeconds, limit, cancellationToken)));
+
+admin.MapGet("/orders", async (
+    string? status, DateTimeOffset? from, DateTimeOffset? to, int? page, int? pageSize,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetOrdersAsync(status, from, to, page, pageSize, cancellationToken)));
+
+admin.MapGet("/orders/{id:guid}", async (
+    Guid id, OrdersService orders, CancellationToken cancellationToken) =>
+{
+    var order = await orders.GetForAdminAsync(id, cancellationToken);
+
+    return order is null ? Results.NotFound() : Results.Ok(order);
+});
 
 app.MapPost("/orders", async (
     CreateOrderRequest request,

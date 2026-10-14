@@ -9,4 +9,5 @@ public sealed record OrderDto(
     decimal TotalAmount,
     OrderStatus Status,
     DateTimeOffset CreatedAtUtc,
-    string? CancellationReason);
+    string? CancellationReason,
+    DateTimeOffset? ResolvedAtUtc);

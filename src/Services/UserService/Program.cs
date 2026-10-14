@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using MassTransit;
@@ -155,13 +156,19 @@ app.MapGet("/users", async (
     var users = await service.GetAllAsync(cancellationToken);
 
     return Results.Ok(users);
-}).RequireAuthorization();
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));   // every user's email: admins only
 
 app.MapGet("/users/{id:guid}", async (
     Guid id,
+    ClaimsPrincipal caller,
     UsersService service,
     CancellationToken cancellationToken) =>
 {
+    // Your own profile, or any if you are an admin. Anyone else gets the same 404 as for an id
+    // that does not exist, so the endpoint cannot be used to find out which ids do.
+    if (!UserAccess.CanView(caller, id))
+        return Results.NotFound();
+
     var user = await service.GetByIdAsync(id, cancellationToken);
 
     return user is null ? Results.NotFound() : Results.Ok(user);
