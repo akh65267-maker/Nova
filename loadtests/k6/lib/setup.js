@@ -3,6 +3,7 @@ import { sleep } from 'k6';
 import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
+  DASHBOARD_VUS,
   BASE_URL,
   PRICE,
   PRODUCTS,
@@ -117,5 +118,8 @@ export function prepare() {
     console.log(`LOADTEST_PRODUCT ${product.productId} ${product.initialStock}`);
   }
 
-  return { products, users };
+  // Only when asked for: one session shared by the dashboard VUs (login is rate limited).
+  const admin = DASHBOARD_VUS > 0 ? login(ADMIN_EMAIL, ADMIN_PASSWORD) : null;
+
+  return { products, users, admin };
 }

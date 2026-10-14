@@ -6,8 +6,10 @@
 //
 //   VUS   concurrent shoppers (default 20)   HOLD   steady period (default 3m)
 //   RAMP  ramp-up and ramp-down (default 1m)
+//   DASHBOARD_VUS  administrators polling the analytics endpoints meanwhile (default 0)
 import exec from 'k6/execution';
-import { TREND_STATS, num } from './lib/config.js';
+import { DASHBOARD_VUS, TREND_STATS, num } from './lib/config.js';
+import { dashboardVisit } from './lib/dashboard.js';
 import { journey } from './lib/journeys.js';
 import { observe } from './lib/phases.js';
 import { report } from './lib/report.js';
@@ -32,9 +34,24 @@ export const options = {
       ],
       gracefulRampDown: '30s',
     },
+    ...(DASHBOARD_VUS > 0 && {
+      dashboard: {
+        executor: 'constant-vus',
+        vus: DASHBOARD_VUS,
+        duration: `${toSeconds(RAMP) * 2 + toSeconds(HOLD)}s`,
+        exec: 'dashboard',
+      },
+    }),
   },
-  thresholds: merge(healthy(), observe([])),
+  thresholds: merge(healthy(), observe([]), DASHBOARD_VUS > 0 ? { admin_analytics_ms: ['max>=0'] } : {}),
 };
+
+// '3m' -> 180. Only the m and s suffixes the defaults use.
+function toSeconds(duration) {
+  const match = /^([0-9]+)(m|s)$/.exec(duration);
+  if (!match) throw new Error(`HOLD and RAMP must look like 3m or 90s, got "${duration}"`);
+  return Number(match[1]) * (match[2] === 'm' ? 60 : 1);
+}
 
 export function setup() {
   return prepare();
@@ -45,6 +62,10 @@ export default function (data) {
     console.log(`LOADTEST_TRAFFIC_STARTED ${Date.now()}`);
   }
   journey(data);
+}
+
+export function dashboard(data) {
+  dashboardVisit(data);
 }
 
 export function handleSummary(data) {

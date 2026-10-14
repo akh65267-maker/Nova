@@ -43,6 +43,10 @@ export const CHECKOUT_WAIT_S = num('CHECKOUT_WAIT_S', 30);
 export const ADMIN_EMAIL = __ENV.ADMIN_EMAIL || '';
 export const ADMIN_PASSWORD = __ENV.ADMIN_PASSWORD || '';
 
+// Administrators with the dashboard open, beside the shoppers (default none). Used to
+// measure whether the analytics queries slow checkouts; needs the admin credentials.
+export const DASHBOARD_VUS = num('DASHBOARD_VUS', 0);
+
 // Share of iterations spent browsing / on the basket / checking out. The rest of
 // the 100% is checkout. A storefront is read-heavy; adjust to match real traffic.
 export const MIX_BROWSE = num('MIX_BROWSE', 0.7);
