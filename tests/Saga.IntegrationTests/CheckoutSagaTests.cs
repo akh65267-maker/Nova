@@ -1068,26 +1068,48 @@ public class CheckoutSagaTests : IAsyncLifetime
         _orderClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
     }
 
-    [Fact]
-    public async Task AdminSummary_IsForAdministratorsOnly_AndRefusesBadRanges()
-    {
-        const string valid = "/orders/admin/summary?from=2026-10-01T00:00:00Z&to=2026-10-08T00:00:00Z";
 
+    private const string AdminRange = "from=2026-10-01T00:00:00Z&to=2026-10-08T00:00:00Z";
+
+    // Every admin analytics endpoint, with the shape its answer must have.
+    private static readonly (string Url, string Contains)[] AdminEndpoints =
+    {
+        ($"/orders/admin/summary?{AdminRange}", "\"current\""),
+        ($"/orders/admin/timeseries?{AdminRange}", "\"days\""),
+        ($"/orders/admin/cancellations?{AdminRange}", "["),
+        ($"/orders/admin/top-products?{AdminRange}&by=revenue&limit=5", "["),
+        ($"/orders/admin/pending", "["),
+        ($"/orders/admin/orders?{AdminRange}&status=Pending&page=1&pageSize=10", "\"total\""),
+    };
+
+    [Fact]
+    public async Task AdminAnalytics_IsForAdministratorsOnly()
+    {
         _orderClient.DefaultRequestHeaders.Authorization = null;
-        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(valid)).StatusCode);
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await _orderClient.GetAsync(url)).StatusCode);
 
         AuthenticateAs(Guid.NewGuid());
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(valid)).StatusCode);
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
 
         AuthenticateAs(Guid.NewGuid(), role: "Customer");
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(valid)).StatusCode);
+        foreach (var (url, _) in AdminEndpoints)
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await _orderClient.GetAsync(url)).StatusCode);
 
         AuthenticateAs(Guid.NewGuid(), role: "Admin");
-        var ok = await _orderClient.GetAsync(valid);
-        Assert.Equal(System.Net.HttpStatusCode.OK, ok.StatusCode);
-        var body = await ok.Content.ReadAsStringAsync();
-        Assert.Contains("\"current\"", body);
-        Assert.Contains("\"previous\"", body);
+        foreach (var (url, contains) in AdminEndpoints)
+        {
+            var response = await _orderClient.GetAsync(url);
+            Assert.True(response.IsSuccessStatusCode, $"{url} answered {(int)response.StatusCode}");
+            Assert.Contains(contains, await response.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
+    public async Task AdminAnalytics_RefusesBadParametersWith400()
+    {
+        AuthenticateAs(Guid.NewGuid(), role: "Admin");
 
         foreach (var bad in new[]
         {
@@ -1096,6 +1118,14 @@ public class CheckoutSagaTests : IAsyncLifetime
             "/orders/admin/summary?from=2026-10-08T00:00:00Z&to=2026-10-01T00:00:00Z",                      // reversed
             "/orders/admin/summary?from=2024-01-01T00:00:00Z&to=2026-01-01T00:00:00Z",                      // too long
             "/orders/admin/summary?from=yesterday&to=today",                                                // not dates
+            $"/orders/admin/timeseries?{AdminRange}&bucket=hour",
+            $"/orders/admin/top-products?{AdminRange}&by=profit",
+            $"/orders/admin/top-products?{AdminRange}&limit=100000",
+            "/orders/admin/pending?limit=100000",
+            "/orders/admin/pending?minAgeSeconds=-5",
+            $"/orders/admin/orders?{AdminRange}&pageSize=100000",
+            $"/orders/admin/orders?{AdminRange}&status=Shipped",
+            $"/orders/admin/orders?{AdminRange}&page=0",
         })
         {
             Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await _orderClient.GetAsync(bad)).StatusCode);

@@ -219,15 +219,39 @@ app.MapGet("/orders/{id:guid}", async (
     return order is null ? Results.NotFound() : Results.Ok(order);
 }).RequireAuthorization();
 
-// Admin analytics. Only figures here, never personal data beyond a user id.
-app.MapGet("/orders/admin/summary", async (
-    DateTimeOffset? from,
-    DateTimeOffset? to,
-    OrderAnalyticsService analytics,
-    CancellationToken cancellationToken) =>
-{
-    return Results.Ok(await analytics.GetSummaryAsync(from, to, cancellationToken));
-}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+// Admin analytics. Only figures here, never personal data beyond a user id. The whole group
+// requires the Admin role, so a new endpoint added to it cannot forget the check.
+var admin = app.MapGroup("/orders/admin").RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+admin.MapGet("/summary", async (
+    DateTimeOffset? from, DateTimeOffset? to,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetSummaryAsync(from, to, cancellationToken)));
+
+admin.MapGet("/timeseries", async (
+    DateTimeOffset? from, DateTimeOffset? to, string? bucket,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetTimeseriesAsync(from, to, bucket, cancellationToken)));
+
+admin.MapGet("/cancellations", async (
+    DateTimeOffset? from, DateTimeOffset? to,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetCancellationsAsync(from, to, cancellationToken)));
+
+admin.MapGet("/top-products", async (
+    DateTimeOffset? from, DateTimeOffset? to, string? by, int? limit,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetTopProductsAsync(from, to, by, limit, cancellationToken)));
+
+admin.MapGet("/pending", async (
+    int? minAgeSeconds, int? limit,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetPendingAsync(minAgeSeconds, limit, cancellationToken)));
+
+admin.MapGet("/orders", async (
+    string? status, DateTimeOffset? from, DateTimeOffset? to, int? page, int? pageSize,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetOrdersAsync(status, from, to, page, pageSize, cancellationToken)));
 
 app.MapPost("/orders", async (
     CreateOrderRequest request,
