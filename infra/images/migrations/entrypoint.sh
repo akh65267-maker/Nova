@@ -13,6 +13,10 @@ set -eu
 # real key, which the migration job has no business holding.
 export Jwt__Key="${Jwt__Key:-migration-job-placeholder-never-used-to-sign-tokens}"
 
+# The same reasoning applies to OrderService's catalog address, which its Program.cs also
+# requires at startup (orders are priced against the catalog). A migration never calls it.
+export Catalog__BaseUrl="${Catalog__BaseUrl:-http://migration-job-placeholder-never-called}"
+
 migrate() {
   service="$1"
   connection="$2"
