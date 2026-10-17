@@ -12,7 +12,7 @@ public class UsersServiceTests
 {
     private readonly Mock<IUserRepository> _userRepo = new();
     private readonly Mock<IPasswordHasher> _passwordHasher = new();
-    private readonly Mock<IJwtTokenGenerator> _tokenGenerator = new();
+    private readonly Mock<ISessionService> _sessions = new();
     private readonly Mock<IPublishEndpoint> _publishEndpoint = new();
     private readonly UsersService _sut;
     private readonly LoginLockoutPolicy _policy = new(MaxFailures: 5, Window: TimeSpan.FromMinutes(15), Duration: TimeSpan.FromMinutes(15));
@@ -39,7 +39,7 @@ public class UsersServiceTests
         _sut = new UsersService(
             _userRepo.Object,
             _passwordHasher.Object,
-            _tokenGenerator.Object,
+            _sessions.Object,
             _publishEndpoint.Object,
             Mock.Of<ILogger<UsersService>>(),
             _policy,
@@ -147,16 +147,20 @@ public class UsersServiceTests
     public async Task LoginAsync_WithCorrectCredentials_ReturnsGeneratedToken()
     {
         var user = new User("test@example.com", "Test", "stored-hash");
-        var expiresAt = DateTimeOffset.UtcNow.AddHours(1);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
+        var refreshExpiresAt = DateTimeOffset.UtcNow.AddDays(14);
         _userRepo.Setup(x => x.GetByEmailAsync("test@example.com", It.IsAny<CancellationToken>()))
             .ReturnsAsync(user);
         _passwordHasher.Setup(x => x.Verify("correct-password", "stored-hash")).Returns(true);
-        _tokenGenerator.Setup(x => x.GenerateToken(user)).Returns(("jwt-token", expiresAt));
+        _sessions.Setup(x => x.StartAsync(user, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SessionTokens("jwt-token", expiresAt, "refresh-token", refreshExpiresAt));
 
         var result = await _sut.LoginAsync(new LoginRequest("test@example.com", "correct-password"));
 
         Assert.Equal("jwt-token", result.Token);
         Assert.Equal(expiresAt, result.ExpiresAtUtc);
+        Assert.Equal("refresh-token", result.RefreshToken);
+        Assert.Equal(refreshExpiresAt, result.RefreshExpiresAtUtc);
     }
 
     [Fact]
@@ -198,7 +202,7 @@ public class UsersServiceTests
         // The real hash is never consulted: a guesser learns nothing about whether a guess was right.
         _passwordHasher.Verify(x => x.Verify(It.IsAny<string>(), "stored-hash"), Times.Never);
         _passwordHasher.Verify(x => x.Verify("correct-password", "dummy-hash"), Times.Once);
-        _tokenGenerator.Verify(x => x.GenerateToken(It.IsAny<User>()), Times.Never);
+        _sessions.Verify(x => x.StartAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
         // Attempts during a lock do not extend it.
         _userRepo.Verify(x => x.RegisterFailedLoginAsync(It.IsAny<Guid>(), It.IsAny<LoginLockoutPolicy>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -209,7 +213,7 @@ public class UsersServiceTests
         var user = UserWith(lockedUntil: Now.AddSeconds(-1));
         _userRepo.Setup(x => x.GetByEmailAsync("test@example.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _passwordHasher.Setup(x => x.Verify("correct-password", "stored-hash")).Returns(true);
-        _tokenGenerator.Setup(x => x.GenerateToken(user)).Returns(("jwt-token", Now.AddHours(1)));
+        _sessions.Setup(x => x.StartAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(new SessionTokens("jwt-token", Now.AddMinutes(15), "refresh-token", Now.AddDays(14)));
 
         var result = await _sut.LoginAsync(new LoginRequest("test@example.com", "correct-password"));
 
@@ -223,7 +227,7 @@ public class UsersServiceTests
         var user = UserWith(failures: 3, lastFailed: Now.AddMinutes(-1));
         _userRepo.Setup(x => x.GetByEmailAsync("test@example.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _passwordHasher.Setup(x => x.Verify("correct-password", "stored-hash")).Returns(true);
-        _tokenGenerator.Setup(x => x.GenerateToken(user)).Returns(("jwt-token", Now.AddHours(1)));
+        _sessions.Setup(x => x.StartAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(new SessionTokens("jwt-token", Now.AddMinutes(15), "refresh-token", Now.AddDays(14)));
 
         await _sut.LoginAsync(new LoginRequest("test@example.com", "correct-password"));
 
@@ -236,7 +240,7 @@ public class UsersServiceTests
         var user = UserWith();
         _userRepo.Setup(x => x.GetByEmailAsync("test@example.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _passwordHasher.Setup(x => x.Verify("correct-password", "stored-hash")).Returns(true);
-        _tokenGenerator.Setup(x => x.GenerateToken(user)).Returns(("jwt-token", Now.AddHours(1)));
+        _sessions.Setup(x => x.StartAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(new SessionTokens("jwt-token", Now.AddMinutes(15), "refresh-token", Now.AddDays(14)));
 
         await _sut.LoginAsync(new LoginRequest("test@example.com", "correct-password"));
 
