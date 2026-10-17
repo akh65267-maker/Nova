@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Observability;
 using OrderService.Application.Orders;
 
 namespace OrderService;
@@ -25,16 +26,18 @@ public class ApiExceptionHandler : IExceptionHandler
             return true;
         }
 
-        // A query value that is not the right type (an unparseable date) is the caller's mistake.
+        // A request the framework could not read (malformed JSON, a query value of the wrong
+        // type) is the caller's mistake, not a server fault.
         if (exception is BadHttpRequestException badRequest)
         {
-            httpContext.Response.StatusCode = badRequest.StatusCode;
+            var status = BadRequestHandling.StatusFor(badRequest);
+            httpContext.Response.StatusCode = status;
 
             await httpContext.Response.WriteAsJsonAsync(new ProblemDetails
             {
-                Status = badRequest.StatusCode,
-                Title = "Invalid request.",
-                Detail = badRequest.Message
+                Status = status,
+                Title = BadRequestHandling.Title,
+                Detail = BadRequestHandling.Detail
             }, cancellationToken);
 
             return true;
