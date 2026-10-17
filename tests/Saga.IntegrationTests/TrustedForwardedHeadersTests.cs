@@ -1,4 +1,3 @@
-extern alias UserAlias;
 
 using System.Net;
 using Microsoft.AspNetCore.Builder;
@@ -9,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-using TrustedForwardedHeaders = UserAlias::UserService.TrustedForwardedHeaders;
+using TrustedForwardedHeaders = Observability.TrustedForwardedHeaders;
 
 namespace Saga.IntegrationTests;
 

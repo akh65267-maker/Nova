@@ -1,11 +1,16 @@
+using System.Linq;
 using System.Net;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using IPNetwork = Microsoft.AspNetCore.HttpOverrides.IPNetwork;
 
-namespace UserService;
+namespace Observability;
 
 /// <summary>
-/// Lets a service learn the real client address from the proxy in front of it.
+/// Lets a service learn the real client address from the proxy in front of it. Shared by the gateway
+/// (which hears it from whatever fronts the gateway) and by the services (which hear it from the gateway).
 ///
 /// Without this, every request reaching UserService comes from the gateway, so anything keyed on
 /// the caller's address (the login rate limit) is ONE bucket shared by everybody: a few failed

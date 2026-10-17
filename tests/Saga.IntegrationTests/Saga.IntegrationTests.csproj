@@ -35,6 +35,9 @@
     <ProjectReference Include="..\..\src\Services\UserService\UserService.csproj">
       <Aliases>UserAlias</Aliases>
     </ProjectReference>
+    <ProjectReference Include="..\..\src\Gateway\ApiGateway\ApiGateway.csproj">
+      <Aliases>GatewayAlias</Aliases>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Shared\Contracts\Contracts.csproj" />
   </ItemGroup>
 
