@@ -36,6 +36,12 @@ public class CatalogDbContext : DbContext
             entity.Property(x => x.CreatedAtUtc)
                 .IsRequired();
 
+            entity.Property(x => x.ImageContentType)
+                .HasMaxLength(50);
+
+            entity.Property(x => x.ImageVersion)
+                .HasMaxLength(64);
+
             entity.HasIndex(x => x.Category);
         });
     }

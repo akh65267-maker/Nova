@@ -3,9 +3,11 @@ using CatalogService;
 using CatalogService.Application.Products;
 using CatalogService.Domain;
 using CatalogService.Infrastructure.Persistence;
+using CatalogService.Infrastructure.Storage;
 using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Net.Http.Headers;
 using Microsoft.IdentityModel.Tokens;
 using Observability;
 using Serilog;
@@ -25,6 +27,7 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<CatalogDbContext>();
 
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddSingleton<IProductImageStore, FileProductImageStore>();
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Program>());
 
 var jwtKey = builder.Configuration["Jwt:Key"]
@@ -119,6 +122,71 @@ app.MapPost("/products", async (
 
     return Results.Created($"/products/{id}", new { id });
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+// The picture itself: public, like the product it belongs to. The URL in a product carries the
+// picture's version, so a browser may keep it for good; a request without one revalidates.
+app.MapGet("/products/{id:guid}/image", async (
+    Guid id,
+    string? v,
+    HttpResponse response,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var image = await mediator.Send(new GetProductImageQuery(id), cancellationToken);
+    if (image is null)
+        return Results.NotFound();
+
+    response.Headers.XContentTypeOptions = "nosniff";
+    response.Headers.CacheControl = v == image.Version ? "public, max-age=31536000, immutable" : "public, no-cache";
+
+    return Results.File(image.Content, image.ContentType, entityTag: new EntityTagHeaderValue($"\"{image.Version}\""));
+});
+
+// The body is the picture itself (image/jpeg, image/png or image/webp), not a form.
+app.MapPut("/products/{id:guid}/image", async (
+    Guid id,
+    HttpRequest request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var tooLarge = Results.Problem(
+        statusCode: StatusCodes.Status413PayloadTooLarge,
+        title: $"A product picture can be at most {ProductImage.MaxBytes / (1024 * 1024)} MB.");
+
+    if (request.ContentLength > ProductImage.MaxBytes)
+        return tooLarge;
+
+    // Read at most one byte more than allowed, so a body with no declared length cannot fill memory.
+    var buffer = new byte[ProductImage.MaxBytes + 1];
+    var length = 0;
+    int read;
+    while (length < buffer.Length
+           && (read = await request.Body.ReadAsync(buffer.AsMemory(length), cancellationToken)) > 0)
+    {
+        length += read;
+    }
+
+    if (length > ProductImage.MaxBytes)
+        return tooLarge;
+
+    var result = await mediator.Send(new SetProductImageCommand(id, buffer[..length]), cancellationToken);
+
+    return result.Outcome switch
+    {
+        SetProductImageOutcome.Set => Results.Ok(new { imageUrl = result.ImageUrl }),
+        SetProductImageOutcome.ProductNotFound => Results.NotFound(),
+        _ => Results.Problem(
+            statusCode: StatusCodes.Status415UnsupportedMediaType,
+            title: "The picture must be a JPEG, PNG or WebP image."),
+    };
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapDelete("/products/{id:guid}/image", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new ClearProductImageCommand(id), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
 
 app.UseExceptionHandler();
 

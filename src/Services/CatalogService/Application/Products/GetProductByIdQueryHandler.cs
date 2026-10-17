@@ -16,6 +16,6 @@ public sealed class GetProductByIdQueryHandler : IRequestHandler<GetProductByIdQ
     {
         var product = await _repo.GetByIdAsync(request.Id, cancellationToken);
 
-        return product is null ? null : new ProductDto(product.Id, product.Name, product.Description, product.Price, product.Category);
+        return product is null ? null : ProductDto.From(product);
     }
 }
