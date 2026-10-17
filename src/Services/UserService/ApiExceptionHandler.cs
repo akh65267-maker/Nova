@@ -15,6 +15,7 @@ public class ApiExceptionHandler : IExceptionHandler
         {
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request."),
             InvalidCredentialsException => (StatusCodes.Status401Unauthorized, "Authentication failed."),
+            InvalidRefreshTokenException => (StatusCodes.Status401Unauthorized, "Authentication failed."),
             _ => (0, string.Empty)
         };
 

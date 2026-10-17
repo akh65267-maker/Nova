@@ -9,7 +9,7 @@ public class UsersService
 {
     private readonly IUserRepository _repo;
     private readonly IPasswordHasher _passwordHasher;
-    private readonly IJwtTokenGenerator _tokenGenerator;
+    private readonly ISessionService _sessions;
     private readonly IPublishEndpoint _publishEndpoint;
     private readonly ILogger<UsersService> _logger;
     private readonly LoginLockoutPolicy _lockout;
@@ -18,7 +18,7 @@ public class UsersService
     public UsersService(
         IUserRepository repo,
         IPasswordHasher passwordHasher,
-        IJwtTokenGenerator tokenGenerator,
+        ISessionService sessions,
         IPublishEndpoint publishEndpoint,
         ILogger<UsersService> logger,
         LoginLockoutPolicy lockout,
@@ -26,7 +26,7 @@ public class UsersService
     {
         _repo = repo;
         _passwordHasher = passwordHasher;
-        _tokenGenerator = tokenGenerator;
+        _sessions = sessions;
         _publishEndpoint = publishEndpoint;
         _logger = logger;
         _lockout = lockout;
@@ -112,8 +112,8 @@ public class UsersService
         if (user.HasLoginFailures)
             await _repo.ClearLoginFailuresAsync(user.Id, cancellationToken);
 
-        var (token, expiresAtUtc) = _tokenGenerator.GenerateToken(user);
+        var tokens = await _sessions.StartAsync(user, cancellationToken);
 
-        return new LoginResult(token, expiresAtUtc);
+        return new LoginResult(tokens.AccessToken, tokens.AccessExpiresAtUtc, tokens.RefreshToken, tokens.RefreshExpiresAtUtc);
     }
 }

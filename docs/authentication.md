@@ -13,7 +13,20 @@ Symmetric-key JWT bearer tokens. UserService is the only issuer; every other ser
 | Lifetime | **1 hour** (`UtcNow.AddHours(1)`), returned to the client as `ExpiresAtUtc` |
 | Claims | `sub` = user id, `email`, `jti` (fresh GUID), and `ClaimTypes.Role` = `Customer` \| `Admin` |
 
-There is **no refresh token, no revocation and no `jti` tracking** — the `jti` claim is generated but never stored or checked, so a token is valid until it expires.
+## Refresh tokens and sign-out
+
+Sign-in returns an **access token** (the JWT above, sent with every request) and a **refresh token** (an opaque 256-bit random value, used only to get the next pair). The access token's life is `Jwt:AccessTokenMinutes` (default **60**, the original hour; the apps are meant to run it at 15 once they refresh by themselves, which the browser half of this work does not do yet). The refresh token's life is `RefreshTokens:RefreshSlidingDays` (14) from when it was issued, and a sign-in ends `RefreshTokens:RefreshAbsoluteDays` (30) after it started however often it was refreshed.
+
+- `POST /users/login` also returns `refreshToken` and `refreshExpiresAtUtc`. `token` and `expiresAtUtc` keep their names.
+- `POST /users/refresh` `{ refreshToken }` returns a new pair in the same shape. The token presented is **spent**: it works once. The new access token is built from the user as they are now, so a changed role takes effect at the next refresh.
+- `POST /users/logout` `{ refreshToken }` ends that sign-in (204, also for an unknown or already-ended token, so it is safe to call twice). Other devices' sign-ins are untouched.
+- Both are rate limited like login.
+
+**Storage.** Only the SHA-256 hash of a refresh token is stored (`RefreshTokens` table), so a copy of the table cannot sign anyone in. Tokens form a **family** per sign-in: each refresh marks the token it was given as used and issues the next one in the same family; ending the family (sign-out, or reuse) ends every token in it. A sweeper deletes tokens that expired more than a day ago, hourly.
+
+**Reuse detection.** A spent token presented again means two parties hold it. Within `ReuseGraceSeconds` (10) of its first use that is treated as an ordinary race (two tabs refreshing at once): refused, sign-in untouched. Later, the **whole family is revoked**: the thief and the real user are both signed out, and the real user signs in again. Spending is one atomic SQL statement, so of two callers presenting the same token at once exactly one wins (a test fires 20 at once; a read-then-write version let all 20 win).
+
+**What this does not do.** An access token already issued **keeps working until it expires**, including after sign-out: every service validates the JWT on its own and none checks a revocation list. So sign-out ends the ability to *renew* at once, and a stolen access token lives at most `Jwt:AccessTokenMinutes`, which is why it should be short. Cutting that to zero would mean every service asking a shared store on every request. A pinned test (`TheAccessTokenAlreadyIssued_StillWorksAfterSigningOut_UntilItExpires`) keeps this honest. There is also no "sign out everywhere" and no password change that ends sessions, because neither endpoint exists.
 
 ## Validation
 

@@ -23,7 +23,13 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var issuer = _configuration["Jwt:Issuer"] ?? "TaskManager";
         var audience = _configuration["Jwt:Audience"] ?? "TaskManager";
 
-        var expiresAtUtc = DateTimeOffset.UtcNow.AddHours(1);
+        // How long an access token lives. The default is the original hour. The point of refresh
+        // tokens is to make this short (15 minutes), which the apps do once they refresh by themselves.
+        var minutes = _configuration.GetValue("Jwt:AccessTokenMinutes", 60);
+        if (minutes < 1)
+            throw new InvalidOperationException("Jwt:AccessTokenMinutes must be at least 1.");
+
+        var expiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(minutes);
 
         var claims = new[]
         {

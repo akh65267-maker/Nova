@@ -11,6 +11,7 @@ using UserService;
 using UserService.Application;
 using UserService.Application.Users;
 using UserService.Domain;
+using UserService.Infrastructure;
 using UserService.Infrastructure.Persistence;
 using UserService.Infrastructure.Security;
 
@@ -35,6 +36,13 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<UsersService>();
+
+// Refresh tokens: how long a sign-in lasts ("RefreshTokens" in configuration), the store, the service
+// that rotates them, and the sweeper that deletes expired ones.
+builder.Services.AddSingleton(builder.Configuration.GetSection("RefreshTokens").Get<RefreshTokenOptions>()?.Validated() ?? RefreshTokenOptions.Default);
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+builder.Services.AddScoped<ISessionService, SessionService>();
+builder.Services.AddHostedService<RefreshTokenCleanupService>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 // The caller's real address, from the gateway's X-Forwarded-For, believed only from the networks
@@ -212,6 +220,30 @@ app.MapPost("/users/login", async (
     return Results.Ok(result);
 }).RequireRateLimiting("login");
 
+// Exchange a refresh token for a new pair; the one presented is spent. The same per-address limit
+// as login, since a stolen token can be tried here.
+app.MapPost("/users/refresh", async (
+    RefreshRequest request,
+    ISessionService sessions,
+    CancellationToken cancellationToken) =>
+{
+    var tokens = await sessions.RefreshAsync(request.RefreshToken, cancellationToken);
+
+    return Results.Ok(new LoginResult(tokens.AccessToken, tokens.AccessExpiresAtUtc, tokens.RefreshToken, tokens.RefreshExpiresAtUtc));
+}).RequireRateLimiting("login");
+
+// End the sign-in a refresh token belongs to. Quiet if it is unknown or already ended. The access
+// token already issued stays valid until it expires (see docs/authentication.md).
+app.MapPost("/users/logout", async (
+    LogoutRequest request,
+    ISessionService sessions,
+    CancellationToken cancellationToken) =>
+{
+    await sessions.EndAsync(request.RefreshToken, cancellationToken);
+
+    return Results.NoContent();
+}).RequireRateLimiting("login");
+
 app.UseExceptionHandler();
 
 app.MapHealthChecks("/health");
@@ -219,3 +251,8 @@ app.MapHealthChecks("/health");
 app.UseHttpsRedirection();
 
 app.Run();
+
+// Lets the integration tests host this service (WebApplicationFactory needs a public Program).
+public partial class Program
+{
+}
