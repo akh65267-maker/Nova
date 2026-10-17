@@ -306,6 +306,18 @@ public class CheckoutSagaTests : IAsyncLifetime
         // The plentiful item's reservation must have been released once the
         // scarce item failed — this is the compensating transaction actually
         // firing, not just the order being marked cancelled.
+        //
+        // Waited for, not read at once: the release is its own message, published when the
+        // order is cancelled and consumed by InventoryService a moment later, so the order
+        // can already read Cancelled while the stock still reads 7. A single immediate read
+        // passed on a fast machine and failed on CI ("Expected: 10, Actual: 7") with nothing
+        // wrong in the saga; the system is eventually consistent by design. If the release
+        // never happens this still fails, after the timeout, with what the stall looked like.
+        await WaitUntilAsync(
+            async () => await GetInventoryQuantityAsync(plentifulProductId) == 10,
+            TimeSpan.FromSeconds(30),
+            "the plentiful item's reservation to be released");
+
         Assert.Equal(10, await GetInventoryQuantityAsync(plentifulProductId));
         Assert.Equal(1, await GetInventoryQuantityAsync(scarceProductId));
     }
