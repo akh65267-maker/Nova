@@ -119,9 +119,12 @@ jobs:
             const files = require("child_process").execSync("find tests -name \"*.trx\"").toString().split("\n").filter(Boolean);
             for (const f of files) {
               const xml = fs.readFileSync(f, "utf8");
-              const failed = /<UnitTestResult[^>]*testName="([^"]*)"[^>]*outcome="Failed"[\s\S]*?<Message>([\s\S]*?)<\/Message>/g;
+              const failed = /<UnitTestResult[^>]*testName="([^"]*)"[^>]*outcome="Failed"[\s\S]*?<Message>([\s\S]*?)<\/Message>(?:\s*<StackTrace>([\s\S]*?)<\/StackTrace>)?/g;
               for (const m of xml.matchAll(failed)) {
-                const message = m[2].split("\n").slice(0, 6).join(" | ").replace(/[%\r\n]/g, " ").slice(0, 500);
-                console.log("::error title=Failed test::" + m[1] + ": " + message);
+                const message = m[2].split("\n").slice(0, 6).join(" | ");
+                // The first frames say which call failed, which the message alone often does not.
+                const stack = (m[3] || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 5).join(" | ");
+                const text = (message + (stack ? " || " + stack : "")).replace(/[%\r\n]/g, " ").slice(0, 1200);
+                console.log("::error title=Failed test::" + m[1] + ": " + text);
               }
             }'

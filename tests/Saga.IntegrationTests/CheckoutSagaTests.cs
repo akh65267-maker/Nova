@@ -1001,17 +1001,30 @@ public class CheckoutSagaTests : IAsyncLifetime
     private async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout, string description)
     {
         var deadline = DateTime.UtcNow + timeout;
+        NpgsqlException? lastConnectionError = null;
 
         while (DateTime.UtcNow < deadline)
         {
-            if (await condition())
-                return;
+            try
+            {
+                if (await condition())
+                    return;
+            }
+            catch (NpgsqlException e)
+            {
+                // A poll opens a fresh connection each time, and on a loaded CI runner one is
+                // occasionally dropped ("Exception while reading from stream"). That says nothing
+                // about what is being waited for, so ask again; if the wait still ends in a
+                // timeout, the error is reported with it.
+                lastConnectionError = e;
+            }
 
             await Task.Delay(500);
         }
 
         throw new TimeoutException(
             $"Gave up after {timeout.TotalSeconds:0}s waiting for {description}. " +
+            (lastConnectionError is null ? "" : $"The last poll failed with: {lastConnectionError.Message}. ") +
             await DescribeStalledStateAsync());
     }
 
