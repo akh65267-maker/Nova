@@ -35,6 +35,16 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<UsersService>();
+builder.Services.AddSingleton(TimeProvider.System);
+
+// The caller's real address, from the gateway's X-Forwarded-For, believed only from the networks
+// in ForwardedHeaders:KnownNetworks. Without it every caller is "the gateway" to the login rate
+// limit below, and a few failed logins a minute from anyone would block everybody.
+var trustForwardedFor = TrustedForwardedHeaders.Configure(builder.Services, builder.Configuration);
+
+// How many wrong passwords lock an account, and for how long ("Login:Lockout" in configuration).
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection("Login:Lockout").Get<LoginLockoutPolicy>()?.Validated() ?? LoginLockoutPolicy.Default);
 
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key configuration is missing.");
@@ -81,9 +91,14 @@ builder.Services.AddMassTransit(x =>
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// Partitioned by IP + submitted email so a botnet from many IPs targeting one
-// account, or one IP cycling through many accounts, are both limited.
 // .NET 8's rate-limiting middleware is in the shared framework - no package needed.
+// Partitioned by client address only: the email is in the request body, which has not been read
+// at this point in the pipeline. The per-account limit is the lockout in UsersService.LoginAsync.
+// Per client address. This is a guard against one address burning CPU on password hashing (each
+// attempt costs about 100 ms) and against spraying many accounts from one address; guessing at a
+// single account is stopped by the account lockout, whichever addresses the guesses come from.
+var loginPermitPerMinute = builder.Configuration.GetValue("Login:IpPermitPerMinute", 60);
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -99,7 +114,7 @@ builder.Services.AddRateLimiter(options =>
 
         return RateLimitPartition.GetSlidingWindowLimiter(ip, _ => new SlidingWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = loginPermitPerMinute,
             Window = TimeSpan.FromMinutes(1),
             SegmentsPerWindow = 6,   // one bucket per 10 seconds
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
@@ -112,6 +127,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+if (trustForwardedFor)
+    app.UseForwardedHeaders();
 
 app.UseSerilogRequestLogging();
 

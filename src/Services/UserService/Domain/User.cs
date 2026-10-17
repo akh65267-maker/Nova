@@ -8,6 +8,17 @@ public class User
     public string PasswordHash { get; private set; }
     public UserRole Role { get; private set; }
 
+    // Wrong-password tracking, changed only by the repository's atomic statements (see
+    // IUserRepository.RegisterFailedLoginAsync), never by read-modify-write here: parallel
+    // guesses must not be able to slip past the counter.
+    public int FailedLoginCount { get; private set; }
+    public DateTimeOffset? LastFailedLoginAtUtc { get; private set; }
+    public DateTimeOffset? LockedUntilUtc { get; private set; }
+
+    public bool IsLockedAt(DateTimeOffset now) => LockedUntilUtc is not null && LockedUntilUtc > now;
+
+    public bool HasLoginFailures => FailedLoginCount > 0 || LastFailedLoginAtUtc is not null || LockedUntilUtc is not null;
+
     private User()
     {
     }
