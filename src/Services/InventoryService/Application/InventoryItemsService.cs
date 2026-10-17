@@ -5,6 +5,16 @@ namespace InventoryService.Application;
 
 public class InventoryItemsService
 {
+    /// <summary>At or below this many units a product is "low stock".</summary>
+    public const int LowStockAt = 5;
+
+    /// <summary>
+    /// The exact quantity is shown publicly up to here. The storefront limits an order to 10 units,
+    /// so it needs the real number whenever that could be the smaller one; above it the exact
+    /// quantity tells a shopper nothing and tells a competitor how much is on the shelf.
+    /// </summary>
+    public const int ExactUpTo = 10;
+
     private readonly IInventoryRepository _repo;
     private readonly ILogger<InventoryItemsService> _logger;
 
@@ -26,6 +36,19 @@ public class InventoryItemsService
         var item = await _repo.GetByProductIdAsync(productId, cancellationToken);
 
         return item is null ? null : new InventoryItemDto(item.ProductId, item.QuantityAvailable);
+    }
+
+    /// <summary>The public view of one product's stock; see <see cref="AvailabilityDto"/>.</summary>
+    public async Task<AvailabilityDto?> GetAvailabilityAsync(Guid productId, CancellationToken cancellationToken = default)
+    {
+        var item = await _repo.GetByProductIdAsync(productId, cancellationToken);
+        if (item is null)
+            return null;
+
+        var quantity = item.QuantityAvailable;
+        var status = quantity <= 0 ? StockStatus.OutOfStock : quantity <= LowStockAt ? StockStatus.LowStock : StockStatus.InStock;
+
+        return new AvailabilityDto(item.ProductId, status, quantity <= ExactUpTo ? Math.Max(quantity, 0) : null);
     }
 
     public async Task CreateAsync(CreateInventoryItemRequest request, CancellationToken cancellationToken = default)

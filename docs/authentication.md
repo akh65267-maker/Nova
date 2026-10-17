@@ -32,7 +32,7 @@ Each service reads `Jwt:Key` at startup and throws `InvalidOperationException` i
 - **Ownership** is enforced in application code, not by policy. Basket keys everything by the caller's `sub`; OrderService filters `GET /orders` by user id and returns `null`/`404` for another user's order.
 - **Roles** use inline policies only — `RequireAuthorization(policy => policy.RequireRole("Admin"))` on `POST /products`, `POST /inventory` and `POST /inventory/{productId}/restock`. There are no named policies, no `AddAuthorization(options => …)` configuration, and no claims transformation.
 - The role string compared at the resource (`"Admin"`) and the enum written into the token (`UserRole.Admin.ToString()`) are coupled by convention only.
-- `GET /inventory` and `GET /inventory/{productId}` have **no** `RequireAuthorization` — stock levels are public. `GET /products` is anonymous by design.
+- **Inventory is split by who may see what.** `GET /inventory/{productId}` is public but answers only a status (`InStock`, `LowStock` at 5 or fewer, `OutOfStock`) and the exact `remaining` only when it is 10 or fewer (the storefront limits an order to 10, so it needs the real number up to there); above that `remaining` is null. The exact quantities are `Admin` only: `GET /inventory` (every product) and `GET /inventory/{productId}/quantity`. Reason: exact levels for every product let anyone watch how fast stock sells. `GET /products` is anonymous by design.
 - `GET /users` (every user's id, email, display name and role) is **admin-only**. `GET /users/{id}` answers for your own id or for an admin; anyone else gets a 404, the same as for an id that does not exist (`UserAccess.CanView`).
 
 ## Admin accounts
