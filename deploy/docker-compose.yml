@@ -74,6 +74,9 @@ services:
       Admin__Email: ${ADMIN_EMAIL}
       Admin__Password: ${ADMIN_PASSWORD}
       Admin__DisplayName: ${ADMIN_DISPLAY_NAME}
+      # Believe the gateway's X-Forwarded-For, but only from the Docker networks, so the login rate
+      # limit sees each caller and not "the gateway" (see TrustedForwardedHeaders).
+      ForwardedHeaders__KnownNetworks__0: 172.16.0.0/12
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     ports:

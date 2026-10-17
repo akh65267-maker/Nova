@@ -10,6 +10,10 @@ public class Pbkdf2PasswordHasher : IPasswordHasher
     private const int Iterations = 100_000;
     private static readonly HashAlgorithmName Algorithm = HashAlgorithmName.SHA256;
 
+    private static readonly Lazy<string> Dummy = new(() => new Pbkdf2PasswordHasher().Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
+
+    public string DummyHash => Dummy.Value;
+
     public string Hash(string password)
     {
         var salt = RandomNumberGenerator.GetBytes(SaltSize);

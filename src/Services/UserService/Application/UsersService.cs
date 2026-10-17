@@ -12,19 +12,25 @@ public class UsersService
     private readonly IJwtTokenGenerator _tokenGenerator;
     private readonly IPublishEndpoint _publishEndpoint;
     private readonly ILogger<UsersService> _logger;
+    private readonly LoginLockoutPolicy _lockout;
+    private readonly TimeProvider _clock;
 
     public UsersService(
         IUserRepository repo,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator tokenGenerator,
         IPublishEndpoint publishEndpoint,
-        ILogger<UsersService> logger)
+        ILogger<UsersService> logger,
+        LoginLockoutPolicy lockout,
+        TimeProvider clock)
     {
         _repo = repo;
         _passwordHasher = passwordHasher;
         _tokenGenerator = tokenGenerator;
         _publishEndpoint = publishEndpoint;
         _logger = logger;
+        _lockout = lockout;
+        _clock = clock;
     }
 
     public async Task<IReadOnlyCollection<UserDto>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -73,10 +79,38 @@ public class UsersService
 
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
+        var now = _clock.GetUtcNow();
         var user = await _repo.GetByEmailAsync(request.Email, cancellationToken);
 
-        if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+        // Three ways to fail, one answer. An address that does not exist and a locked account
+        // each still pay for a verification (against a dummy hash), so neither the message nor the
+        // response time says which of the three it was; otherwise lockout, or the timing, would
+        // be a way to find out which addresses have accounts.
+        if (user is null)
+        {
+            _passwordHasher.Verify(request.Password, _passwordHasher.DummyHash);
             throw new InvalidCredentialsException();
+        }
+
+        if (user.IsLockedAt(now))
+        {
+            // The real hash is not consulted at all while locked: not even the right password
+            // gets in, and a guesser learns nothing from the answer. A refused attempt does not
+            // extend the lock.
+            _passwordHasher.Verify(request.Password, _passwordHasher.DummyHash);
+            _logger.LogWarning("Login refused for locked account {UserId} until {LockedUntil}", user.Id, user.LockedUntilUtc);
+            throw new InvalidCredentialsException();
+        }
+
+        if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
+        {
+            await _repo.RegisterFailedLoginAsync(user.Id, _lockout, now, cancellationToken);
+            throw new InvalidCredentialsException();
+        }
+
+        // A write only when there is something to forget, so an ordinary login stays read-only.
+        if (user.HasLoginFailures)
+            await _repo.ClearLoginFailuresAsync(user.Id, cancellationToken);
 
         var (token, expiresAtUtc) = _tokenGenerator.GenerateToken(user);
 
