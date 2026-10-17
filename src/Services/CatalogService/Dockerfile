@@ -1,4 +1,7 @@
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+# Where product pictures live (a volume in docker-compose). Created here, owned by the app user, so
+# the volume starts out writable by it.
+RUN mkdir -p /data/product-images && chown $APP_UID /data/product-images
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080

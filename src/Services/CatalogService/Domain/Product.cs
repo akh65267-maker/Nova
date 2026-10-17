@@ -8,6 +8,8 @@ public class Product
     public decimal Price { get; private set; }
     public string Category { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public string? ImageContentType { get; private set; }
+    public string? ImageVersion { get; private set; }
 
     private Product()
     {
@@ -30,5 +32,23 @@ public class Product
         Price = price;
         Category = category;
         CreatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void SetImage(string contentType, string version)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+            throw new ArgumentException("The picture's content type is required.", nameof(contentType));
+
+        if (string.IsNullOrWhiteSpace(version))
+            throw new ArgumentException("The picture's version is required.", nameof(version));
+
+        ImageContentType = contentType;
+        ImageVersion = version;
+    }
+
+    public void ClearImage()
+    {
+        ImageContentType = null;
+        ImageVersion = null;
     }
 }
