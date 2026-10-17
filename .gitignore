@@ -13,3 +13,6 @@ infra/.secrets/
 
 # Load-test output (k6 logs, JSON, memory samples). Regenerated on every run.
 loadtests/results/
+
+# local credentials copied from deploy/.env
+secret.md
