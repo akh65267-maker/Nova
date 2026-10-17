@@ -112,7 +112,8 @@ env_value() { grep -E "^$1=" "$ROOT/deploy/.env" 2>/dev/null | head -1 | cut -d=
 ADMIN_EMAIL="$(env_value ADMIN_EMAIL)"; ADMIN_PASSWORD="$(env_value ADMIN_PASSWORD)"
 export ADMIN_EMAIL ADMIN_PASSWORD
 if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
-  echo "note: no ADMIN_EMAIL/ADMIN_PASSWORD in deploy/.env; the run will use an existing product and can exhaust it" >&2
+  echo "error: ADMIN_EMAIL and ADMIN_PASSWORD are required in deploy/.env: creating the run's products and reading exact stock are admin-only" >&2
+  exit 3
 fi
 
 RUN_ID="$(date +%Y%m%d-%H%M%S)"

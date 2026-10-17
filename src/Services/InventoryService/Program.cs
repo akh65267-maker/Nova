@@ -129,6 +129,18 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
+// The public view: a status, and the exact number only when it is small (see AvailabilityDto).
+app.MapGet("/inventory/{productId:guid}", async (
+    Guid productId,
+    InventoryItemsService service,
+    CancellationToken cancellationToken) =>
+{
+    var availability = await service.GetAvailabilityAsync(productId, cancellationToken);
+
+    return availability is null ? Results.NotFound() : Results.Ok(availability);
+});
+
+// Exact quantities, for administrators: the whole list, and one product.
 app.MapGet("/inventory", async (
     InventoryItemsService service,
     CancellationToken cancellationToken) =>
@@ -136,9 +148,9 @@ app.MapGet("/inventory", async (
     var items = await service.GetAllAsync(cancellationToken);
 
     return Results.Ok(items);
-});
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
 
-app.MapGet("/inventory/{productId:guid}", async (
+app.MapGet("/inventory/{productId:guid}/quantity", async (
     Guid productId,
     InventoryItemsService service,
     CancellationToken cancellationToken) =>
@@ -146,7 +158,7 @@ app.MapGet("/inventory/{productId:guid}", async (
     var item = await service.GetByProductIdAsync(productId, cancellationToken);
 
     return item is null ? Results.NotFound() : Results.Ok(item);
-});
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
 
 app.MapPost("/inventory", async (
     CreateInventoryItemRequest request,

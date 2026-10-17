@@ -42,7 +42,7 @@ Endpoints (all authenticated, all scoped to the caller's `sub`): `GET /basket`, 
 
 ## InventoryService
 
-Endpoints: `GET /inventory`, `GET /inventory/{productId}` (**no authorization**), `POST /inventory` (`Admin`), `POST /inventory/{productId}/restock` (`Admin`).
+Endpoints: `GET /inventory/{productId}` (public: a status, and the exact `remaining` only when it is 10 or fewer), `GET /inventory` and `GET /inventory/{productId}/quantity` (`Admin`: exact quantities), `POST /inventory` (`Admin`), `POST /inventory/{productId}/restock` (`Admin`).
 
 - `InventoryItem` is keyed by `ProductId` and holds a single `QuantityAvailable`. Business rules live in the entity: `Reserve` rejects non-positive quantity and throws `InsufficientStockException` when `quantity > QuantityAvailable`; `Release` and `Restock` both add (identical behaviour, kept as separate intents).
 - There is **no separate "reserved" counter** — reserving decrements available stock, and compensation adds it back.

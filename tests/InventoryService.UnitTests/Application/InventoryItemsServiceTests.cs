@@ -99,4 +99,46 @@ public class InventoryItemsServiceTests
         _repo.Verify(x => x.GetByProductIdForUpdateAsync(productId, It.IsAny<CancellationToken>()), Times.Once);
         _repo.Verify(x => x.GetByProductIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    // What the PUBLIC may learn about a product's stock: a status always, and the exact number only
+    // when it is small. Exact levels for every product would let anyone watch how fast stock sells.
+    [Theory]
+    [InlineData(0, StockStatus.OutOfStock, 0)]
+    [InlineData(1, StockStatus.LowStock, 1)]
+    [InlineData(5, StockStatus.LowStock, 5)]
+    [InlineData(6, StockStatus.InStock, 6)]
+    [InlineData(10, StockStatus.InStock, 10)]
+    [InlineData(11, StockStatus.InStock, null)]
+    [InlineData(5000, StockStatus.InStock, null)]
+    public async Task GetAvailabilityAsync_ReportsAStatus_AndTheNumberOnlyWhenItIsSmall(int quantity, StockStatus status, int? remaining)
+    {
+        var productId = Guid.NewGuid();
+        _repo.Setup(x => x.GetByProductIdAsync(productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InventoryItem(productId, quantity));
+
+        var result = await _sut.GetAvailabilityAsync(productId);
+
+        Assert.NotNull(result);
+        Assert.Equal(productId, result!.ProductId);
+        Assert.Equal(status, result.Availability);
+        Assert.Equal(remaining, result.Remaining);
+    }
+
+    [Fact]
+    public async Task GetAvailabilityAsync_ForAnUnknownProduct_ReturnsNull()
+    {
+        _repo.Setup(x => x.GetByProductIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((InventoryItem?)null);
+
+        Assert.Null(await _sut.GetAvailabilityAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void TheAvailabilityAnswer_HasNoFieldThatCouldCarryTheExactQuantityAboveTheCap()
+    {
+        // The only number in the public answer is Remaining, and the service nulls it above the cap.
+        var fields = typeof(AvailabilityDto).GetProperties().Select(p => p.Name).OrderBy(n => n);
+
+        Assert.Equal(new[] { nameof(AvailabilityDto.Availability), nameof(AvailabilityDto.ProductId), nameof(AvailabilityDto.Remaining) }, fields);
+    }
 }

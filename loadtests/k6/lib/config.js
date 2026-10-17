@@ -38,8 +38,8 @@ export const PRICE = 1;
 // How long one simulated shopper waits for an order to leave Pending.
 export const CHECKOUT_WAIT_S = num('CHECKOUT_WAIT_S', 30);
 
-// Needed to create the dedicated product (POST /products is Admin-only). Without
-// them the tests fall back to the best-stocked existing product and say so.
+// Required: creating the dedicated products (POST /products) and reading exact stock
+// (GET /inventory) are Admin-only.
 export const ADMIN_EMAIL = __ENV.ADMIN_EMAIL || '';
 export const ADMIN_PASSWORD = __ENV.ADMIN_PASSWORD || '';
 
