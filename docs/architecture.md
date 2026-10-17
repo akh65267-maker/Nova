@@ -83,7 +83,7 @@ Every service exposes `GET /health`: `AddDbContextCheck<T>` for the EF services,
 ## Cross-cutting API conventions
 
 - Minimal APIs only; no MVC controllers anywhere.
-- `ApiExceptionHandler` (one copy per service, same shape) maps `ArgumentException` → `400` `ProblemDetails` and passes everything else through. UserService additionally has `InvalidCredentialsException`; InventoryService has `InsufficientStockException` (surfaced through messaging, not HTTP).
+- `ApiExceptionHandler` (one copy per service, same shape) maps `ArgumentException` → `400` `ProblemDetails` and passes everything else through. It also maps `BadHttpRequestException` (what ASP.NET Core throws for a body that is not valid JSON for the endpoint, or a query value of the wrong type) to a client error: the framework's own 4xx (413, 408) or else `400`, with a **fixed** message from `Observability.BadRequestHandling`, because the framework's message names internal parameters and types and quotes what the caller sent. Before that, only OrderService did so; the other four answered garbage with a `500` and an error in the log. UserService additionally has `InvalidCredentialsException`; InventoryService has `InsufficientStockException` (surfaced through messaging, not HTTP).
 - Swagger is enabled in Development only.
 - `app.UseHttpsRedirection()` is last in each pipeline; containers run plain HTTP on 8080.
 - OrderService is the only service that registers `JsonStringEnumConverter` (so `OrderStatus` serializes as a string).
