@@ -15,7 +15,7 @@ An order records: id, user id, status (`Pending`/`Confirmed`/`Cancelled`), creat
 | Cancellation rate and the reasons | Yes (`CancellationReason`) |
 | Orders stuck in Pending right now, and how old | Yes |
 | Top products by units or revenue | Yes, but names need a lookup in CatalogService |
-| Low stock | Yes, from InventoryService (`GET /inventory`, already public) |
+| Low stock | Yes, from InventoryService (`GET /inventory`, admin-only since the public view became a status) |
 | **How long checkouts take to resolve** | **No.** Nothing records when an order was confirmed or cancelled. Needs a new `ResolvedAtUtc` column (see 2.3). Orders resolved before that column exists stay unknown |
 | Revenue per customer, repeat customers | Yes by user id; names/emails live in UserService |
 | Abandoned carts | **No.** The cart lives in the browser; the server never sees it. Nothing to measure |

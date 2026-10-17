@@ -75,30 +75,16 @@ function createProducts() {
   return products;
 }
 
-// Without admin credentials: the best-stocked products that already exist. Loudly
-// second best, because a long run can drain them.
-function pickExistingProducts() {
-  const list = http.get(`${BASE_URL}/products?pageSize=100`, { tags: { name: 'setup_list' } }).json('items');
-  const inventory = http.get(`${BASE_URL}/inventory`, { tags: { name: 'setup_inventory' } }).json();
-  const stock = new Map(inventory.map((i) => [i.productId, i.quantityAvailable]));
-
-  const candidates = list.filter((p) => p.price > 0 && (stock.get(p.id) ?? 0) > 0);
-  if (candidates.length === 0) {
-    throw new Error('no purchasable product exists; set ADMIN_EMAIL/ADMIN_PASSWORD so some can be created');
-  }
-  candidates.sort((a, b) => stock.get(b.id) - stock.get(a.id));
-  const best = candidates.slice(0, PRODUCTS);
-  console.warn(
-    `WARNING: no admin credentials, using ${best.length} existing product(s). ` +
-      'A long or heavy run can exhaust them and start measuring the out-of-stock path instead.',
-  );
-  return best.map((p) => ({ productId: p.id, price: p.price, initialStock: stock.get(p.id) }));
-}
-
 export function prepare() {
   guardTarget();
 
-  const products = ADMIN_EMAIL && ADMIN_PASSWORD ? createProducts() : pickExistingProducts();
+  // The run needs an administrator: only an administrator can create the dedicated products, and
+  // only an administrator can read exact stock levels, which the stock-conservation check starts
+  // from. (They used to be public, so a run could fall back to existing products without one.)
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+    throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD are required (deploy/.env): creating products and reading exact stock are admin-only');
+  }
+  const products = createProducts();
 
   const users = [];
   for (let i = 1; i <= USERS; i++) {
