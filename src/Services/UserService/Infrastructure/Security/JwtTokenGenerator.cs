@@ -9,6 +9,8 @@ namespace UserService.Infrastructure.Security;
 
 public class JwtTokenGenerator : IJwtTokenGenerator
 {
+    public const int DefaultAccessTokenMinutes = 15;
+
     private readonly IConfiguration _configuration;
 
     public JwtTokenGenerator(IConfiguration configuration)
@@ -23,9 +25,9 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var issuer = _configuration["Jwt:Issuer"] ?? "TaskManager";
         var audience = _configuration["Jwt:Audience"] ?? "TaskManager";
 
-        // How long an access token lives. The default is the original hour. The point of refresh
-        // tokens is to make this short (15 minutes), which the apps do once they refresh by themselves.
-        var minutes = _configuration.GetValue("Jwt:AccessTokenMinutes", 60);
+        // How long an access token lives: 15 minutes by default. It can be short because both apps
+        // renew it by themselves with the refresh token (it was an hour while the admin could not).
+        var minutes = _configuration.GetValue("Jwt:AccessTokenMinutes", DefaultAccessTokenMinutes);
         if (minutes < 1)
             throw new InvalidOperationException("Jwt:AccessTokenMinutes must be at least 1.");
 

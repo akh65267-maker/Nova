@@ -15,7 +15,7 @@ Symmetric-key JWT bearer tokens. UserService is the only issuer; every other ser
 
 ## Refresh tokens and sign-out
 
-Sign-in returns an **access token** (the JWT above, sent with every request) and a **refresh token** (an opaque 256-bit random value, used only to get the next pair). The access token's life is `Jwt:AccessTokenMinutes` (default **60**, the original hour; the apps are meant to run it at 15 once they refresh by themselves, which the browser half of this work does not do yet). The refresh token's life is `RefreshTokens:RefreshSlidingDays` (14) from when it was issued, and a sign-in ends `RefreshTokens:RefreshAbsoluteDays` (30) after it started however often it was refreshed.
+Sign-in returns an **access token** (the JWT above, sent with every request) and a **refresh token** (an opaque 256-bit random value, used only to get the next pair). The access token's life is `Jwt:AccessTokenMinutes` (default **15**; both apps renew it by themselves with the refresh token). The refresh token's life is `RefreshTokens:RefreshSlidingDays` (14) from when it was issued, and a sign-in ends `RefreshTokens:RefreshAbsoluteDays` (30) after it started however often it was refreshed.
 
 - `POST /users/login` also returns `refreshToken` and `refreshExpiresAtUtc`. `token` and `expiresAtUtc` keep their names.
 - `POST /users/refresh` `{ refreshToken }` returns a new pair in the same shape. The token presented is **spent**: it works once. The new access token is built from the user as they are now, so a changed role takes effect at the next refresh.
