@@ -20,7 +20,15 @@ builder.Services.AddCors(options =>
             .AllowCredentials());
 });
 
+// The caller's real address, from X-Forwarded-For, believed only from the networks in
+// ForwardedHeaders:KnownNetworks (whatever fronts the gateway: the shop's server, an ingress). The
+// gateway then passes that address on to the services, whose sign-in limits are per caller.
+var trustForwardedFor = TrustedForwardedHeaders.Configure(builder.Services, builder.Configuration);
+
 var app = builder.Build();
+
+if (trustForwardedFor)
+    app.UseForwardedHeaders();
 
 app.UseSerilogRequestLogging();
 
@@ -29,3 +37,8 @@ app.UseCors();
 app.MapReverseProxy();
 
 app.Run();
+
+// Lets the integration tests host the gateway (WebApplicationFactory needs a public Program).
+public partial class Program
+{
+}
