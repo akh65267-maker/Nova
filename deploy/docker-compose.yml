@@ -13,6 +13,7 @@ services:
       ReverseProxy__Clusters__inventory-cluster__Destinations__destination1__Address: http://inventory-api:8080/
       ReverseProxy__Clusters__basket-cluster__Destinations__destination1__Address: http://basket-api:8080/
       ReverseProxy__Clusters__order-cluster__Destinations__destination1__Address: http://order-api:8080/
+      ReverseProxy__Clusters__assistant-cluster__Destinations__destination1__Address: http://assistant-api:8080/
       # The browser origins allowed to call the API: the shop and the admin app.
       Cors__AllowedOrigins__0: http://localhost:3100
       Cors__AllowedOrigins__1: http://localhost:3200
@@ -30,6 +31,7 @@ services:
       - inventory-api
       - basket-api
       - order-api
+      - assistant-api
       - jaeger
 
   tasks-api:
@@ -165,6 +167,39 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_started
+
+  # Off by default (Assistant__Enabled). To try it: set ASSISTANT_ENABLED=true and start the ollama
+  # profile (docker compose --profile ai up -d), then pull the model once:
+  # docker exec taskflow-ollama ollama pull qwen2.5:3b
+  assistant-api:
+    build:
+      context: ../src
+      dockerfile: Services/AssistantService/Dockerfile
+    container_name: taskflow-assistant-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Assistant__Enabled: ${ASSISTANT_ENABLED:-false}
+      Assistant__Model: ${ASSISTANT_MODEL:-qwen2.5:3b}
+      Assistant__OllamaUrl: http://ollama:11434/
+      Assistant__CatalogUrl: http://catalog-api:8080/
+      Assistant__BasketUrl: http://basket-api:8080/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    ports:
+      - "8086:8080"
+    depends_on:
+      - jaeger
+
+  ollama:
+    image: ollama/ollama:0.12.3
+    container_name: taskflow-ollama
+    profiles: ["ai"]
+    volumes:
+      - taskflow-ollama:/root/.ollama
 
   order-api:
     build:
@@ -412,6 +447,7 @@ volumes:
   taskflow-postgres-users-data:
   taskflow-postgres-catalog-data:
   taskflow-product-images:
+  taskflow-ollama:
   taskflow-postgres-inventory-data:
   taskflow-postgres-order-data:
   taskflow-prometheus-data:
