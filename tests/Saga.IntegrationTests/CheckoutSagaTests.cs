@@ -1045,7 +1045,9 @@ public class CheckoutSagaTests : IAsyncLifetime
     /// message is received and is only stamped Consumed when its handler is done, so counting
     /// rows would report "processed" while consumers are still queued on the stock row lock.
     /// </summary>
-    private async Task<int> CountInventoryConsumedAsync()
+    private Task<int> CountInventoryConsumedAsync() => RetryReadAsync(CountInventoryConsumedOnceAsync);
+
+    private async Task<int> CountInventoryConsumedOnceAsync()
     {
         var options = new DbContextOptionsBuilder<InventoryDbContext>()
             .UseNpgsql(_inventoryDb.GetConnectionString())
@@ -1068,7 +1070,28 @@ public class CheckoutSagaTests : IAsyncLifetime
         _seededProducts.Add(productId);
     }
 
-    private async Task<int> GetInventoryQuantityAsync(Guid productId)
+    private Task<int> GetInventoryQuantityAsync(Guid productId) => RetryReadAsync(() => GetInventoryQuantityOnceAsync(productId));
+
+    /// <summary>
+    /// A read that is safe to repeat, retried when the runner drops the connection
+    /// ("Exception while reading from stream"); the same reason WaitUntilAsync rides out a dropped poll.
+    /// </summary>
+    private static async Task<T> RetryReadAsync<T>(Func<Task<T>> read)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await read();
+            }
+            catch (NpgsqlException) when (attempt < 3)
+            {
+                await Task.Delay(500);
+            }
+        }
+    }
+
+    private async Task<int> GetInventoryQuantityOnceAsync(Guid productId)
     {
         using var scope = _inventoryHost!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
