@@ -38,8 +38,18 @@ Uri Address(string key) => new(builder.Configuration[key] ?? throw new InvalidOp
 
 builder.Services.AddHttpClient(SearchProductsTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:CatalogUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddHttpClient(GetMyOrdersTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:OrderUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
+// The model behind the assistant: a local Ollama by default, or the Anthropic API (Assistant:Provider = "anthropic").
 // A small local model on a CPU can take a while to answer.
-builder.Services.AddHttpClient<IChatModel, OllamaChatModel>(c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });
+if (string.Equals(builder.Configuration["Assistant:Provider"], "anthropic", StringComparison.OrdinalIgnoreCase))
+{
+    if (string.IsNullOrWhiteSpace(builder.Configuration["Assistant:Anthropic:ApiKey"]))
+        throw new InvalidOperationException("Assistant:Anthropic:ApiKey is missing.");
+    builder.Services.AddHttpClient<IChatModel, AnthropicChatModel>(c => { c.BaseAddress = new Uri("https://api.anthropic.com/"); c.Timeout = TimeSpan.FromSeconds(120); });
+}
+else
+{
+    builder.Services.AddHttpClient<IChatModel, OllamaChatModel>(c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });
+}
 builder.Services.AddSingleton<IAssistantTool, SearchProductsTool>();
 builder.Services.AddSingleton<IAssistantTool, GetMyOrdersTool>();
 builder.Services.AddScoped<AssistantRunner>();
