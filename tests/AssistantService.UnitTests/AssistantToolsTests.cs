@@ -51,7 +51,7 @@ public class AssistantToolsTests
     [Fact]
     public async Task AFailingLookup_IsReportedAsTextForTheModel_NotThrown()
     {
-        var result = await new GetMyBasketTool(new Factory(new Recorder(HttpStatusCode.Unauthorized))).RunAsync(NoArguments, null, CancellationToken.None);
+        var result = await new GetMyOrdersTool(new Factory(new Recorder(HttpStatusCode.Unauthorized))).RunAsync(NoArguments, null, CancellationToken.None);
 
         Assert.Equal("The lookup failed with status 401.", result);
     }

@@ -38,11 +38,9 @@ Uri Address(string key) => new(builder.Configuration[key] ?? throw new InvalidOp
 
 builder.Services.AddHttpClient(SearchProductsTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:CatalogUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddHttpClient(GetMyOrdersTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:OrderUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
-builder.Services.AddHttpClient(GetMyBasketTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:BasketUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
 // A small local model on a CPU can take a while to answer.
 builder.Services.AddHttpClient<IChatModel, OllamaChatModel>(c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });
 builder.Services.AddSingleton<IAssistantTool, SearchProductsTool>();
-builder.Services.AddSingleton<IAssistantTool, GetMyBasketTool>();
 builder.Services.AddSingleton<IAssistantTool, GetMyOrdersTool>();
 builder.Services.AddScoped<AssistantRunner>();
 
@@ -69,7 +67,7 @@ app.MapPost("/assistant/chat", async (
 
     try
     {
-        return Results.Ok(await runner.AskAsync(message, http.Headers.Authorization.ToString(), cancellationToken));
+        return Results.Ok(await runner.AskAsync(message, http.Headers.Authorization.ToString(), request.Cart, cancellationToken));
     }
     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
     {
@@ -81,6 +79,6 @@ app.MapGet("/health", () => Results.Ok());
 
 app.Run();
 
-public sealed record ChatRequest(string? Message);
+public sealed record ChatRequest(string? Message, List<CartLine>? Cart);
 
 public partial class Program;

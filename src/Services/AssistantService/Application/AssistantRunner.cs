@@ -10,7 +10,7 @@ public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool
 
     private const string SystemPrompt =
         "You are the shop assistant for an online store. Answer briefly. " +
-        "Use the tools to look up products, the customer's basket and their own past orders. When asked about products, call search_products " +
+        "Use the tools to look up products and the customer's own past orders; their current cart is given to you below, so answer cart questions from that. When asked about products, call search_products " +
         "straight away (a vague word is a fine search) instead of asking questions back. To suggest something, search for what fits the need, " +
         "and where it helps check what the customer usually buys with get_my_orders; recommend only products the tools returned, " +
         "and say why each fits. Never invent products or prices. " +
@@ -19,11 +19,30 @@ public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool
         "(for example cushioning or support), never as a treatment. Search with a plain keyword for the kind of product (for example 'running'), not the problem. " +
         "You can only read: you cannot place orders or change anything. If a tool fails, say so.";
 
+    private const int MaxCartLines = 20;
+    private const int MaxNameLength = 80;
+
+    /// <summary>The cart the browser sent, bounded and flattened to one plain line per item (a name is the customer's own text, so no line breaks).</summary>
+    public static string DescribeCart(IReadOnlyList<CartLine>? cart)
+    {
+        if (cart is not { Count: > 0 })
+            return "The customer's cart is empty.";
+
+        var lines = cart.Take(MaxCartLines).Select(line =>
+        {
+            var name = new string((line.Name ?? "an item").Where(c => !char.IsControl(c)).ToArray()).Trim();
+            if (name.Length > MaxNameLength) name = name[..MaxNameLength];
+            return $"- {Math.Clamp(line.Quantity, 1, 99)} x {name} at {line.Price:0.00} each";
+        });
+
+        return "The customer's cart right now:\n" + string.Join('\n', lines);
+    }
+
     private readonly IReadOnlyDictionary<string, IAssistantTool> _tools = tools.ToDictionary(t => t.Spec.Name);
 
-    public async Task<AssistantReply> AskAsync(string message, string? authorization, CancellationToken cancellationToken)
+    public async Task<AssistantReply> AskAsync(string message, string? authorization, IReadOnlyList<CartLine>? cart, CancellationToken cancellationToken)
     {
-        var messages = new List<ChatMessage> { new("system", SystemPrompt), new("user", message) };
+        var messages = new List<ChatMessage> { new("system", SystemPrompt), new("system", DescribeCart(cart)), new("user", message) };
         var used = new List<string>();
         var specs = _tools.Values.Select(t => t.Spec).ToList();
 

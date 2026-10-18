@@ -29,19 +29,6 @@ public sealed class SearchProductsTool(IHttpClientFactory clients) : IAssistantT
         arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } s ? s : null;
 }
 
-public sealed class GetMyBasketTool(IHttpClientFactory clients) : IAssistantTool
-{
-    public const string HttpClientName = "basket";
-
-    public ToolSpec Spec { get; } = new(
-        "get_my_basket",
-        "Read the signed-in customer's own basket.",
-        JsonDocument.Parse("""{"type":"object","properties":{}}""").RootElement.Clone());
-
-    public Task<string> RunAsync(JsonElement arguments, string? authorization, CancellationToken cancellationToken) =>
-        ToolHttp.GetAsync(clients.CreateClient(HttpClientName), "/basket", authorization, cancellationToken);
-}
-
 /// <summary>The caller's own orders (the order service returns only the signed-in user's), for "what do I usually buy?" questions.</summary>
 public sealed class GetMyOrdersTool(IHttpClientFactory clients) : IAssistantTool
 {
