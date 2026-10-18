@@ -105,8 +105,9 @@ public class InventoryEndpointsTests : IAsyncLifetime
         var plentyBody = JsonDocument.Parse(plentyText).RootElement;
         Assert.Equal("InStock", plentyBody.GetProperty("availability").GetString());
         Assert.Equal(JsonValueKind.Null, plentyBody.GetProperty("remaining").ValueKind);
-        // The real number appears nowhere in what an anonymous caller is told.
-        Assert.DoesNotContain("500", plentyText);
+        // The real number appears nowhere in what an anonymous caller is told. (The product's own id is
+        // left out of the search: a random Guid can contain "500" by chance.)
+        Assert.DoesNotContain("500", plentyText.Replace(plenty.ToString(), ""));
         Assert.DoesNotContain("quantity", plentyText, StringComparison.OrdinalIgnoreCase);
 
         var noneBody = JsonDocument.Parse(await (await _client.GetAsync($"/inventory/{none}")).Content.ReadAsStringAsync()).RootElement;
