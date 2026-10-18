@@ -37,6 +37,7 @@ builder.Services.AddProblemDetails();
 Uri Address(string key) => new(builder.Configuration[key] ?? throw new InvalidOperationException($"{key} is missing."));
 
 builder.Services.AddHttpClient(SearchProductsTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:CatalogUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
+builder.Services.AddHttpClient(SearchProductsTool.InventoryClientName, c => { c.BaseAddress = Address("Assistant:InventoryUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddHttpClient(GetMyOrdersTool.HttpClientName, c => { c.BaseAddress = Address("Assistant:OrderUrl"); c.Timeout = TimeSpan.FromSeconds(10); });
 // A small local model on a CPU can take a while to answer.
 builder.Services.AddHttpClient<IChatModel, OllamaChatModel>(c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });

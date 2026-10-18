@@ -1,16 +1,18 @@
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace AssistantService.Application;
 
 public sealed class SearchProductsTool(IHttpClientFactory clients) : IAssistantTool
 {
     public const string HttpClientName = "catalog";
+    public const string InventoryClientName = "inventory";
 
     public ToolSpec Spec { get; } = new(
         "search_products",
-        "Search the shop's catalog by name or description. It is a plain text match, not a smart search: give ONE or TWO short keywords such as 'running' or 'insoles', never a sentence and never the customer's problem. Returns up to 5 products with id, name, description, price and category.",
+        "Search the shop's catalog by name or description. It is a plain text match, not a smart search: give ONE or TWO short keywords such as 'running' or 'insoles', never a sentence and never the customer's problem. Returns up to 5 products that are in stock, with id, name, description, price and category.",
         JsonDocument.Parse("""{"type":"object","properties":{"search":{"type":"string"},"category":{"type":"string"},"maxPrice":{"type":"number"}},"required":["search"]}""").RootElement.Clone());
 
     public async Task<string> RunAsync(JsonElement arguments, string? authorization, CancellationToken cancellationToken)
@@ -22,7 +24,57 @@ public sealed class SearchProductsTool(IHttpClientFactory clients) : IAssistantT
             query.Add("maxPrice=" + price.ToString(CultureInfo.InvariantCulture));
 
         // The catalog is public: the caller's token is not sent.
-        return await ToolHttp.GetAsync(clients.CreateClient(HttpClientName), "/products?" + string.Join('&', query), null, cancellationToken);
+        var body = await ToolHttp.GetAsync(clients.CreateClient(HttpClientName), "/products?" + string.Join('&', query), null, cancellationToken);
+        return await InStockOnlyAsync(body, cancellationToken);
+    }
+
+    /// <summary>
+    /// Drops the products that cannot be bought (no stock, or no stock record, as in the shop) so the model
+    /// never recommends one. A product whose stock could not be looked up stays: it is not known to be gone.
+    /// </summary>
+    private async Task<string> InStockOnlyAsync(string catalogBody, CancellationToken cancellationToken)
+    {
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(catalogBody);
+        }
+        catch (JsonException)
+        {
+            return catalogBody; // a failure message, not a list: pass it on as it is
+        }
+
+        if (parsed is not JsonObject result || result["items"] is not JsonArray items)
+            return catalogBody;
+
+        var inventory = clients.CreateClient(InventoryClientName);
+        var kept = new JsonArray();
+        foreach (var item in items.OfType<JsonObject>())
+        {
+            var id = item["id"]?.GetValue<string>();
+            if (id is null) continue;
+            if (await IsAvailableAsync(inventory, id, cancellationToken) is false) continue;
+            kept.Add(item.DeepClone());
+        }
+
+        result["items"] = kept;
+        result["totalCount"] = kept.Count;
+        return result.ToJsonString();
+    }
+
+    /// <summary>true/false when the inventory answered, null when it could not be asked.</summary>
+    private static async Task<bool?> IsAvailableAsync(HttpClient inventory, string productId, CancellationToken cancellationToken)
+    {
+        var answer = await ToolHttp.GetAsync(inventory, "/inventory/" + Uri.EscapeDataString(productId), null, cancellationToken);
+        if (answer.StartsWith("The lookup failed with status 404", StringComparison.Ordinal)) return false;
+        try
+        {
+            return JsonNode.Parse(answer)?["availability"]?.GetValue<string>() is { } status ? status != "OutOfStock" : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string? Text(JsonElement arguments, string name) =>

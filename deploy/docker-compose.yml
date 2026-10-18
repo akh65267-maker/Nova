@@ -186,6 +186,7 @@ services:
       Assistant__Model: ${ASSISTANT_MODEL:-qwen2.5:7b}
       Assistant__OllamaUrl: http://ollama:11434/
       Assistant__CatalogUrl: http://catalog-api:8080/
+      Assistant__InventoryUrl: http://inventory-api:8080/
       Assistant__OrderUrl: http://order-api:8080/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
