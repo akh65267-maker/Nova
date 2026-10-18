@@ -42,6 +42,20 @@ public sealed class GetMyBasketTool(IHttpClientFactory clients) : IAssistantTool
         ToolHttp.GetAsync(clients.CreateClient(HttpClientName), "/basket", authorization, cancellationToken);
 }
 
+/// <summary>The caller's own orders (the order service returns only the signed-in user's), for "what do I usually buy?" questions.</summary>
+public sealed class GetMyOrdersTool(IHttpClientFactory clients) : IAssistantTool
+{
+    public const string HttpClientName = "orders";
+
+    public ToolSpec Spec { get; } = new(
+        "get_my_orders",
+        "Read the signed-in customer's own past orders (items, totals, status, date) to see what they usually buy.",
+        JsonDocument.Parse("""{"type":"object","properties":{}}""").RootElement.Clone());
+
+    public Task<string> RunAsync(JsonElement arguments, string? authorization, CancellationToken cancellationToken) =>
+        ToolHttp.GetAsync(clients.CreateClient(HttpClientName), "/orders", authorization, cancellationToken);
+}
+
 internal static class ToolHttp
 {
     private const int MaxChars = 4000;

@@ -12,7 +12,7 @@ public sealed class OllamaChatModel(HttpClient http, IConfiguration configuratio
     {
         var body = new JsonObject
         {
-            ["model"] = configuration["Assistant:Model"] ?? "qwen2.5:3b",
+            ["model"] = configuration["Assistant:Model"] ?? "qwen2.5:7b",
             ["stream"] = false,
             ["messages"] = new JsonArray(messages.Select(ToJson).ToArray()),
             ["tools"] = new JsonArray(tools.Select(t => (JsonNode)new JsonObject

@@ -170,7 +170,7 @@ services:
 
   # Off by default (Assistant__Enabled). To try it: set ASSISTANT_ENABLED=true and start the ollama
   # profile (docker compose --profile ai up -d), then pull the model once:
-  # docker exec taskflow-ollama ollama pull qwen2.5:3b
+  # docker exec taskflow-ollama ollama pull qwen2.5:7b
   assistant-api:
     build:
       context: ../src
@@ -183,10 +183,11 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Assistant__Enabled: ${ASSISTANT_ENABLED:-false}
-      Assistant__Model: ${ASSISTANT_MODEL:-qwen2.5:3b}
+      Assistant__Model: ${ASSISTANT_MODEL:-qwen2.5:7b}
       Assistant__OllamaUrl: http://ollama:11434/
       Assistant__CatalogUrl: http://catalog-api:8080/
       Assistant__BasketUrl: http://basket-api:8080/
+      Assistant__OrderUrl: http://order-api:8080/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     ports:
