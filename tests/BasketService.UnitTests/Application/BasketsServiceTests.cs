@@ -86,4 +86,61 @@ public class BasketsServiceTests
 
         _repo.Verify(x => x.DeleteAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task ReplaceAsync_SavesExactlyTheGivenLines_AddingUpARepeatedProduct()
+    {
+        var userId = Guid.NewGuid();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+
+        var result = await _sut.ReplaceAsync(userId, new ReplaceBasketRequest(
+            [new(a, 2), new(b, 1), new(a, 3)]));
+
+        Assert.Equal(2, result.Items.Count);
+        Assert.Equal(5, result.Items.Single(i => i.ProductId == a).Quantity);
+        _repo.Verify(x => x.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(x => x.SaveAsync(
+            It.Is<Basket>(basket => basket.UserId == userId && basket.Items.Count == 2),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReplaceAsync_AnEmptyList_EmptiesTheBasket()
+    {
+        var result = await _sut.ReplaceAsync(Guid.NewGuid(), new ReplaceBasketRequest([]));
+
+        Assert.Empty(result.Items);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(BasketsService.MaxQuantity + 1)]
+    public async Task ReplaceAsync_AQuantityOutOfRange_IsRejectedAndNothingIsSaved(int quantity)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => _sut.ReplaceAsync(
+            Guid.NewGuid(), new ReplaceBasketRequest([new(Guid.NewGuid(), quantity)])));
+
+        _repo.Verify(x => x.SaveAsync(It.IsAny<Basket>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ReplaceAsync_TheSameProductAddingUpPastTheLimit_IsRejected()
+    {
+        var product = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _sut.ReplaceAsync(
+            Guid.NewGuid(), new ReplaceBasketRequest([new(product, 60), new(product, 60)])));
+    }
+
+    [Fact]
+    public async Task ReplaceAsync_TooManyLinesOrNoItemsAtAll_IsRejected()
+    {
+        var tooMany = Enumerable.Range(0, BasketsService.MaxLines + 1)
+            .Select(_ => new AddBasketItemRequest(Guid.NewGuid(), 1)).ToList();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _sut.ReplaceAsync(Guid.NewGuid(), new ReplaceBasketRequest(tooMany)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _sut.ReplaceAsync(Guid.NewGuid(), new ReplaceBasketRequest(null)));
+    }
 }
