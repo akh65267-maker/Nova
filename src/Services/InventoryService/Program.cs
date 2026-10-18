@@ -140,6 +140,13 @@ app.MapGet("/inventory/{productId:guid}", async (
     return availability is null ? Results.NotFound() : Results.Ok(availability);
 });
 
+// The same public view for several products in one call: /inventory/availability?ids=a&ids=b.
+app.MapGet("/inventory/availability", async (
+    Guid[] ids,
+    InventoryItemsService service,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await service.GetAvailabilityManyAsync(ids, cancellationToken)));
+
 // Exact quantities, for administrators: the whole list, and one product.
 app.MapGet("/inventory", async (
     InventoryItemsService service,

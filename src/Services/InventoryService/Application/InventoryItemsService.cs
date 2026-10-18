@@ -51,6 +51,27 @@ public class InventoryItemsService
         return new AvailabilityDto(item.ProductId, status, quantity <= ExactUpTo ? Math.Max(quantity, 0) : null);
     }
 
+    // A grid of products asks for every card's stock at once instead of one request per card.
+    public const int MaxBatch = 100;
+
+    /// <summary>The public availability of each distinct product asked for; a product with no stock record is left out.</summary>
+    public async Task<IReadOnlyList<AvailabilityDto>> GetAvailabilityManyAsync(IReadOnlyCollection<Guid>? productIds, CancellationToken cancellationToken = default)
+    {
+        var ids = productIds?.Distinct().ToList() ?? [];
+        if (ids.Count > MaxBatch)
+            throw new ArgumentException($"At most {MaxBatch} products can be asked about at once.", nameof(productIds));
+
+        var found = new List<AvailabilityDto>(ids.Count);
+        foreach (var id in ids)
+        {
+            var availability = await GetAvailabilityAsync(id, cancellationToken);
+            if (availability is not null)
+                found.Add(availability);
+        }
+
+        return found;
+    }
+
     public async Task CreateAsync(CreateInventoryItemRequest request, CancellationToken cancellationToken = default)
     {
         var item = new InventoryItem(request.ProductId, request.QuantityAvailable);
