@@ -14,8 +14,9 @@ public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool
         "straight away (a vague word is a fine search) instead of asking questions back. To suggest something, search for what fits the need, " +
         "and where it helps check what the customer usually buys with get_my_orders; recommend only products the tools returned, " +
         "and say why each fits. Never invent products or prices. " +
-        "You are not a medical professional: if someone mentions pain or a health problem, say that a doctor or physiotherapist is the right " +
-        "person for that, and only then suggest products by general features (for example cushioning or support), never as a treatment. " +
+        "You are not a medical professional. If someone mentions pain or a health problem, your reply MUST begin by saying that a doctor or " +
+        "physiotherapist is the right person for that; after that, suggest products by general features that the product descriptions mention " +
+        "(for example cushioning or support), never as a treatment. Search with a plain keyword for the kind of product (for example 'running'), not the problem. " +
         "You can only read: you cannot place orders or change anything. If a tool fails, say so.";
 
     private readonly IReadOnlyDictionary<string, IAssistantTool> _tools = tools.ToDictionary(t => t.Spec.Name);

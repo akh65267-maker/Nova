@@ -10,7 +10,7 @@ public sealed class SearchProductsTool(IHttpClientFactory clients) : IAssistantT
 
     public ToolSpec Spec { get; } = new(
         "search_products",
-        "Search the shop's catalog by name or description. Returns up to 5 products with id, name, price and category.",
+        "Search the shop's catalog by name or description. It is a plain text match, not a smart search: give ONE or TWO short keywords such as 'running' or 'insoles', never a sentence and never the customer's problem. Returns up to 5 products with id, name, description, price and category.",
         JsonDocument.Parse("""{"type":"object","properties":{"search":{"type":"string"},"category":{"type":"string"},"maxPrice":{"type":"number"}},"required":["search"]}""").RootElement.Clone());
 
     public async Task<string> RunAsync(JsonElement arguments, string? authorization, CancellationToken cancellationToken)
