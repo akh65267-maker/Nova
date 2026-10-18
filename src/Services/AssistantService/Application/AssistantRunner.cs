@@ -10,7 +10,7 @@ public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool
 
     private const string SystemPrompt =
         "You are the shop assistant for an online store. Answer briefly. Use the tools to look up products and the customer's basket; " +
-        "never invent products or prices. You can only read: you cannot place orders or change anything. If a tool fails, say so.";
+        "when asked about products, call search_products straight away (a vague word is a fine search) instead of asking questions back; never invent products or prices. You can only read: you cannot place orders or change anything. If a tool fails, say so.";
 
     private readonly IReadOnlyDictionary<string, IAssistantTool> _tools = tools.ToDictionary(t => t.Spec.Name);
 
