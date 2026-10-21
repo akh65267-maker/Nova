@@ -13,22 +13,26 @@ public class Product
     public string? ImageVersion { get; private set; }
     public DateTimeOffset? ArchivedAtUtc { get; private set; }
 
+    private readonly List<ProductAttribute> _attributes = new();
+    public IReadOnlyList<ProductAttribute> Attributes => _attributes;
+
     private Product()
     {
     }
 
-    public Product(string name, string description, decimal price, string category, string? brand = null)
+    public Product(string name, string description, decimal price, string category, string? brand = null, IEnumerable<ProductAttribute>? attributes = null)
     {
         Id = Guid.NewGuid();
         CreatedAtUtc = DateTimeOffset.UtcNow;
-        Update(name, description, price, category, brand);
+        Update(name, description, price, category, brand, attributes);
     }
 
     public bool IsArchived => ArchivedAtUtc is not null;
 
     public const int MaxBrandLength = 100;
 
-    public void Update(string name, string description, decimal price, string category, string? brand = null)
+    /// <param name="attributes">Replaces the product's attributes; null leaves them as they are.</param>
+    public void Update(string name, string description, decimal price, string category, string? brand = null, IEnumerable<ProductAttribute>? attributes = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Product name is required.", nameof(name));
@@ -43,11 +47,47 @@ public class Product
         if (trimmedBrand is { Length: > MaxBrandLength })
             throw new ArgumentException($"Brand can be at most {MaxBrandLength} characters.", nameof(brand));
 
+        var cleaned = attributes is null ? null : CleanAttributes(attributes);
+
         Name = name;
         Description = description ?? string.Empty;
         Price = price;
         Category = category;
         Brand = trimmedBrand;
+
+        if (cleaned is not null)
+        {
+            _attributes.Clear();
+            _attributes.AddRange(cleaned);
+        }
+    }
+
+    // Blank rows are dropped, a name repeated keeps its last value, and the limits are enforced.
+    private static List<ProductAttribute> CleanAttributes(IEnumerable<ProductAttribute> attributes)
+    {
+        var byName = new Dictionary<string, ProductAttribute>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var attribute in attributes)
+        {
+            var name = attribute.Name?.Trim() ?? string.Empty;
+            var value = attribute.Value?.Trim() ?? string.Empty;
+            if (name.Length == 0 && value.Length == 0)
+                continue;
+
+            if (name.Length == 0 || value.Length == 0)
+                throw new ArgumentException("Each attribute needs both a name and a value.", nameof(attributes));
+            if (name.Length > ProductAttribute.MaxNameLength)
+                throw new ArgumentException($"An attribute name can be at most {ProductAttribute.MaxNameLength} characters.", nameof(attributes));
+            if (value.Length > ProductAttribute.MaxValueLength)
+                throw new ArgumentException($"An attribute value can be at most {ProductAttribute.MaxValueLength} characters.", nameof(attributes));
+
+            byName[name] = new ProductAttribute(name, value);
+        }
+
+        if (byName.Count > ProductAttribute.MaxPerProduct)
+            throw new ArgumentException($"A product can have at most {ProductAttribute.MaxPerProduct} attributes.", nameof(attributes));
+
+        return byName.Values.ToList();
     }
 
     /// <summary>Takes the product off sale. It is kept, not deleted: orders still refer to it.</summary>
