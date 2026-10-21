@@ -18,7 +18,7 @@ public sealed class CreateProductCommandHandler : IRequestHandler<CreateProductC
 
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        var product = new Product(request.Name, request.Description, request.Price, request.Category);
+        var product = new Product(request.Name, request.Description, request.Price, request.Category, request.Brand);
 
         if (!await _categories.ExistsAsync(product.Category, cancellationToken))
             throw new ArgumentException($"Unknown category '{product.Category}'.", nameof(request));

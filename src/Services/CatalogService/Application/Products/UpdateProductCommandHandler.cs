@@ -26,7 +26,7 @@ public sealed class UpdateProductCommandHandler : IRequestHandler<UpdateProductC
         if (request.Category != product.Category && !await _categories.ExistsAsync(request.Category, cancellationToken))
             throw new ArgumentException($"Unknown category '{request.Category}'.", nameof(request));
 
-        product.Update(request.Name, request.Description, request.Price, request.Category);
+        product.Update(request.Name, request.Description, request.Price, request.Category, request.Brand);
         await _repo.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Updated product {ProductId}", product.Id);

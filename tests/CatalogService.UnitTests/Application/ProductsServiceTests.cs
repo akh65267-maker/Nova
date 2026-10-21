@@ -58,7 +58,7 @@ public class ProductsServiceTests
     {
         var product = new Product("Widget", "desc", 9.99m, "Electronics");
         _repo.Setup(x => x.SearchAsync(
-                "Electronics", null, null, null, ProductSortBy.Newest, 1, 20, false, It.IsAny<CancellationToken>()))
+                "Electronics", null, null, null, ProductSortBy.Newest, 1, 20, false, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { product }, 1));
 
         var sut = new ProductListQueryHandler(_repo.Object);

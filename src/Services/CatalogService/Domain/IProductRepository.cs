@@ -13,7 +13,10 @@ public interface IProductRepository
         int page,
         int pageSize,
         bool includeArchived,
+        string? brand,
         CancellationToken cancellationToken = default);
+    /// <summary>The brands of products on sale, by name, with how many products each has.</summary>
+    Task<IReadOnlyCollection<(string Brand, int ProductCount)>> ListBrandsAsync(CancellationToken cancellationToken = default);
     Task AddAsync(Product product, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

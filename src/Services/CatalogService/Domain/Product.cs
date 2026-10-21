@@ -7,6 +7,7 @@ public class Product
     public string Description { get; private set; }
     public decimal Price { get; private set; }
     public string Category { get; private set; }
+    public string? Brand { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public string? ImageContentType { get; private set; }
     public string? ImageVersion { get; private set; }
@@ -16,16 +17,18 @@ public class Product
     {
     }
 
-    public Product(string name, string description, decimal price, string category)
+    public Product(string name, string description, decimal price, string category, string? brand = null)
     {
         Id = Guid.NewGuid();
         CreatedAtUtc = DateTimeOffset.UtcNow;
-        Update(name, description, price, category);
+        Update(name, description, price, category, brand);
     }
 
     public bool IsArchived => ArchivedAtUtc is not null;
 
-    public void Update(string name, string description, decimal price, string category)
+    public const int MaxBrandLength = 100;
+
+    public void Update(string name, string description, decimal price, string category, string? brand = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Product name is required.", nameof(name));
@@ -36,10 +39,15 @@ public class Product
         if (string.IsNullOrWhiteSpace(category))
             throw new ArgumentException("Product category is required.", nameof(category));
 
+        var trimmedBrand = string.IsNullOrWhiteSpace(brand) ? null : brand.Trim();
+        if (trimmedBrand is { Length: > MaxBrandLength })
+            throw new ArgumentException($"Brand can be at most {MaxBrandLength} characters.", nameof(brand));
+
         Name = name;
         Description = description ?? string.Empty;
         Price = price;
         Category = category;
+        Brand = trimmedBrand;
     }
 
     /// <summary>Takes the product off sale. It is kept, not deleted: orders still refer to it.</summary>

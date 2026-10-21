@@ -59,7 +59,11 @@ public class CatalogDbContext : DbContext
             entity.Property(x => x.ImageVersion)
                 .HasMaxLength(64);
 
+            entity.Property(x => x.Brand)
+                .HasMaxLength(Product.MaxBrandLength);
+
             entity.HasIndex(x => x.Category);
+            entity.HasIndex(x => x.Brand);
         });
     }
 }
