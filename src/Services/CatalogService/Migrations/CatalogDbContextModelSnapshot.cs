@@ -98,6 +98,34 @@ namespace CatalogService.Migrations
 
             modelBuilder.Entity("CatalogService.Domain.Product", b =>
                 {
+                    b.OwnsOne("CatalogService.Domain.Discount", "Discount", b1 =>
+                        {
+                            b1.Property<Guid>("ProductId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset?>("EndsAtUtc")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<string>("Kind")
+                                .IsRequired()
+                                .HasMaxLength(10)
+                                .HasColumnType("character varying(10)");
+
+                            b1.Property<DateTimeOffset?>("StartsAtUtc")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<decimal>("Value")
+                                .HasPrecision(18, 2)
+                                .HasColumnType("numeric(18,2)");
+
+                            b1.HasKey("ProductId");
+
+                            b1.ToTable("Products");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ProductId");
+                        });
+
                     b.OwnsMany("CatalogService.Domain.GalleryImage", "Gallery", b1 =>
                         {
                             b1.Property<int>("Id")
@@ -161,6 +189,8 @@ namespace CatalogService.Migrations
                         });
 
                     b.Navigation("Attributes");
+
+                    b.Navigation("Discount");
 
                     b.Navigation("Gallery");
                 });

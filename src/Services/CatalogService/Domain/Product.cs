@@ -13,6 +13,8 @@ public class Product
     public string? ImageVersion { get; private set; }
     public DateTimeOffset? ArchivedAtUtc { get; private set; }
 
+    public Discount? Discount { get; private set; }
+
     private readonly List<ProductAttribute> _attributes = new();
     public IReadOnlyList<ProductAttribute> Attributes => _attributes;
 
@@ -92,6 +94,28 @@ public class Product
 
         return byName.Values.ToList();
     }
+
+    /// <summary>The price a customer pays at this moment: the price, less the discount while it is on.</summary>
+    public decimal EffectivePrice(DateTimeOffset now) => Discount is { } d && d.IsActiveAt(now) ? d.Apply(Price) : Price;
+
+    public void SetDiscount(Discount discount)
+    {
+        if (!Enum.IsDefined(discount.Kind))
+            throw new ArgumentException("The discount must be a percent or a fixed amount.", nameof(discount));
+
+        if (discount.Kind == DiscountKind.Percent && discount.Value is <= 0 or >= 100)
+            throw new ArgumentException("A percent discount must be above 0 and below 100.", nameof(discount));
+
+        if (discount.Kind == DiscountKind.Fixed && (discount.Value <= 0 || discount.Value >= Price))
+            throw new ArgumentException("A fixed discount must be above 0 and below the price.", nameof(discount));
+
+        if (discount.StartsAtUtc is { } starts && discount.EndsAtUtc is { } ends && ends <= starts)
+            throw new ArgumentException("The discount must end after it starts.", nameof(discount));
+
+        Discount = discount;
+    }
+
+    public void ClearDiscount() => Discount = null;
 
     /// <summary>Takes the product off sale. It is kept, not deleted: orders still refer to it.</summary>
     public void Archive() => ArchivedAtUtc ??= DateTimeOffset.UtcNow;

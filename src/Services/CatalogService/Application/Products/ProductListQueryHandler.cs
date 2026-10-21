@@ -24,9 +24,11 @@ public sealed class ProductListQueryHandler : IRequestHandler<ProductListQuery, 
             request.PageSize,
             request.IncludeArchived,
             request.Brand,
+            request.OnSale,
             cancellationToken);
 
-        var dtos = items.Select(ProductDto.From).ToList();
+        var now = DateTimeOffset.UtcNow;
+        var dtos = items.Select(x => ProductDto.From(x, now)).ToList();
 
         return new ProductListResult(dtos, totalCount, request.Page, request.PageSize);
     }
