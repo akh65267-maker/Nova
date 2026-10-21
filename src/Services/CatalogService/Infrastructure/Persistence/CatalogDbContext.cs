@@ -102,6 +102,12 @@ public class CatalogDbContext : DbContext
             });
             entity.Navigation(x => x.Gallery).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+            entity.OwnsOne(x => x.Discount, discount =>
+            {
+                discount.Property(d => d.Kind).IsRequired().HasConversion<string>().HasMaxLength(10);
+                discount.Property(d => d.Value).HasPrecision(18, 2);
+            });
+
             entity.HasIndex(x => x.Category);
             entity.HasIndex(x => x.Brand);
         });

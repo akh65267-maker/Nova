@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using CatalogService.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,9 +36,21 @@ public class ProductRepository : IProductRepository
         int pageSize,
         bool includeArchived,
         string? brand,
+        bool onSale,
         CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
         var query = _db.Products.AsNoTracking().AsQueryable();
+
+        // What a customer pays now: the price, less the discount while it is on. Mirrors Product.EffectivePrice.
+        Expression<Func<Product, decimal>> effectivePrice = x =>
+            x.Discount == null
+            || (x.Discount.StartsAtUtc != null && x.Discount.StartsAtUtc > now)
+            || (x.Discount.EndsAtUtc != null && x.Discount.EndsAtUtc <= now)
+                ? x.Price
+                : x.Discount.Kind == DiscountKind.Percent
+                    ? Math.Round(x.Price * (100 - x.Discount.Value) / 100, 2)
+                    : x.Discount.Value < x.Price ? x.Price - x.Discount.Value : x.Price;
 
         if (!includeArchived)
             query = query.Where(x => x.ArchivedAtUtc == null);
@@ -49,18 +62,24 @@ public class ProductRepository : IProductRepository
             query = query.Where(x => x.Category == category);
 
         if (minPrice.HasValue)
-            query = query.Where(x => x.Price >= minPrice.Value);
+            query = WherePrice(query, effectivePrice, price => price >= minPrice.Value);
 
         if (maxPrice.HasValue)
-            query = query.Where(x => x.Price <= maxPrice.Value);
+            query = WherePrice(query, effectivePrice, price => price <= maxPrice.Value);
+
+        if (onSale)
+            query = query.Where(x => x.Discount != null
+                && (x.Discount.StartsAtUtc == null || x.Discount.StartsAtUtc <= now)
+                && (x.Discount.EndsAtUtc == null || now < x.Discount.EndsAtUtc)
+                && (x.Discount.Kind == DiscountKind.Percent || x.Discount.Value < x.Price));
 
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(x => EF.Functions.ILike(x.Name, $"%{search}%") || (x.Brand != null && EF.Functions.ILike(x.Brand, $"%{search}%")));
 
         query = sort switch
         {
-            ProductSortBy.PriceAscending => query.OrderBy(x => x.Price),
-            ProductSortBy.PriceDescending => query.OrderByDescending(x => x.Price),
+            ProductSortBy.PriceAscending => query.OrderBy(effectivePrice),
+            ProductSortBy.PriceDescending => query.OrderByDescending(effectivePrice),
             ProductSortBy.NameAscending => query.OrderBy(x => x.Name),
             _ => query.OrderByDescending(x => x.CreatedAtUtc),
         };
@@ -73,6 +92,19 @@ public class ProductRepository : IProductRepository
             .ToListAsync(cancellationToken);
 
         return (items, totalCount);
+    }
+
+    // Filters on the effective price: puts the price expression in place of the parameter of the test.
+    private static IQueryable<Product> WherePrice(IQueryable<Product> query, Expression<Func<Product, decimal>> price, Expression<Func<decimal, bool>> test)
+    {
+        var body = new ReplaceParameter(test.Parameters[0], price.Body).Visit(test.Body);
+
+        return query.Where(Expression.Lambda<Func<Product, bool>>(body, price.Parameters));
+    }
+
+    private sealed class ReplaceParameter(ParameterExpression parameter, Expression replacement) : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) => node == parameter ? replacement : node;
     }
 
     public async Task<IReadOnlyCollection<(string Brand, int ProductCount)>> ListBrandsAsync(CancellationToken cancellationToken = default)

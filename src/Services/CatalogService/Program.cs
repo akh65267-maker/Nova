@@ -106,6 +106,7 @@ app.MapGet("/products", async (
         Page: page,
         PageSize: pageSize,
         Brand: query["brand"].ToString() is { Length: > 0 } brand ? brand : null,
+        OnSale: query["onSale"] == "true",
         // Archived products are for the admin console only; anyone else asking gets the shop's list.
         IncludeArchived: query["includeArchived"] == "true" && httpRequest.HttpContext.User.IsInRole("Admin")), cancellationToken);
 
@@ -387,6 +388,33 @@ app.MapDelete("/products/{id:guid}/gallery/{version}", async (
     IMediator mediator,
     CancellationToken cancellationToken) =>
     await mediator.Send(new RemoveGalleryImageCommand(id, version), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapGet("/products/{id:guid}/discount", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var lookup = await mediator.Send(new GetDiscountQuery(id), cancellationToken);
+
+    return !lookup.ProductFound ? Results.NotFound() : lookup.Discount is null ? Results.NoContent() : Results.Ok(lookup.Discount);
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapPut("/products/{id:guid}/discount", async (
+    Guid id,
+    DiscountDto request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new SetDiscountCommand(id, request.Kind, request.Value, request.StartsAtUtc, request.EndsAtUtc), cancellationToken)
+        ? Results.NoContent()
+        : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapDelete("/products/{id:guid}/discount", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new ClearDiscountCommand(id), cancellationToken) ? Results.NoContent() : Results.NotFound())
     .RequireAuthorization(policy => policy.RequireRole("Admin"));
 
 app.MapDelete("/products/{id:guid}/image", async (
