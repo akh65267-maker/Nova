@@ -137,7 +137,7 @@ Item 2 is a handful of lines per service and is the highest value-to-effort item
 Concrete changes to `.github/workflows/ci.yml`, in value order:
 
 1. **Run the saga integration test.** GitHub-hosted Ubuntu runners have Docker, so Testcontainers works. The flakiness noted in the workflow comment is real and partly documented in the test itself (the RabbitMQ auth-init race, handled with a fixed 5s delay) — but a test excluded from CI is a test that will silently rot, and it is currently the *only* automated coverage of the distributed workflow. Put it in a **separate job** so its slowness and any flakiness don't block the fast unit-test signal.
-2. **Collapse the six per-project test steps into one** `dotnet test TaskManager.slnx` with the integration project filtered out by trait/category. Six near-identical steps is maintenance that grows with every new service.
+2. **Collapse the six per-project test steps into one** `dotnet test NovaCommerce.slnx` with the integration project filtered out by trait/category. Six near-identical steps is maintenance that grows with every new service.
 3. **Validate migrations** — a step that fails if `dotnet ef migrations has-pending-model-changes` reports drift catches the common "changed the entity, forgot the migration" mistake. Given nothing applies migrations at startup, migration hygiene matters more here than usual.
 4. **Cache NuGet** (`actions/setup-dotnet` with `cache: true`) — cheap wall-clock win.
 5. **Build the Docker images** on PR. Six Dockerfiles are referenced by compose and are currently never exercised by CI, so a broken Dockerfile is only discovered locally.

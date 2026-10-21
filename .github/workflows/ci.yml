@@ -19,17 +19,17 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore NuGet packages
-        run: dotnet restore TaskManager.slnx
+        run: dotnet restore NovaCommerce.slnx
 
       - name: Build (Release)
-        run: dotnet build TaskManager.slnx --no-restore --configuration Release
+        run: dotnet build NovaCommerce.slnx --no-restore --configuration Release
 
       # Run all six unit-test projects in a single invocation.
       # Saga.IntegrationTests is excluded here because it needs Docker
       # (Testcontainers) and runs in its own job below.
       - name: Unit tests
         run: >
-          dotnet test TaskManager.slnx
+          dotnet test NovaCommerce.slnx
           --no-restore
           --configuration Release
           --filter "FullyQualifiedName!~Saga.IntegrationTests"
@@ -51,7 +51,7 @@ jobs:
         # dotnet-ef is declared in .config/dotnet-tools.json; tool restore
         # installs it locally so the 'dotnet ef' command works in subsequent steps.
         run: |
-          dotnet restore TaskManager.slnx
+          dotnet restore NovaCommerce.slnx
           dotnet tool restore
 
       # Checks that every EF DbContext's current model matches the last
@@ -93,10 +93,10 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore NuGet packages
-        run: dotnet restore TaskManager.slnx
+        run: dotnet restore NovaCommerce.slnx
 
       - name: Build (Release)
-        run: dotnet build TaskManager.slnx --no-restore --configuration Release
+        run: dotnet build NovaCommerce.slnx --no-restore --configuration Release
 
       # GitHub-hosted ubuntu-latest runners have Docker installed and the
       # daemon running, so Testcontainers works without any extra setup.

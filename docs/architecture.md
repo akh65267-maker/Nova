@@ -90,6 +90,6 @@ Every service exposes `GET /health`: `AddDbContextCheck<T>` for the EF services,
 
 ## Build & CI
 
-- `TaskManager.slnx` (slnx solution format).
+- `NovaCommerce.slnx` (slnx solution format).
 - `.github/workflows/ci.yml` runs three parallel jobs on every push and pull request to `main`: `build-and-test` (Release build of the solution, then one `dotnet test` over every test project except `Saga.IntegrationTests`), `migration-drift` (`dotnet ef migrations has-pending-model-changes` for each service), and `integration-tests` (`Saga.IntegrationTests`, kept separate because it starts real Postgres and RabbitMQ containers via Testcontainers and is slower).
 - `.github/workflows/deploy-azure.yml` is manual-only and disabled unless `AZURE_DEPLOY_ENABLED` is set; see [azure-deployment.md](azure-deployment.md).
