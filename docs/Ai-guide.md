@@ -16,11 +16,13 @@ Browser (chat panel)
    ▼
 Gateway (YARP)  ── /assistant/** ──►  AssistantService
                                          │ 1. checks the JWT, the feature flag, the message length
-                                         │ 2. AssistantRunner: model ⇄ tools, at most 4 rounds
+                                         │ 2. AssistantRunner: a Microsoft Agent Framework ChatClientAgent,
+                                         │    model ⇄ tools, at most 4 rounds
                                          ▼
-                              IChatModel ─► OllamaChatModel ─► Ollama (qwen2.5:7b)
+                              IChatClient ─► OllamaSharp ─► Ollama (qwen2.5:7b)     (default, local)
+                                          └► Anthropic SDK ─► Anthropic API          (Assistant:Provider=anthropic)
                                          │
-                              tools:  search_products ─► CatalogService  (public, no token)
+                              tools:  search_products ─► CatalogService + InventoryService (public, no token; out-of-stock dropped)
                                       get_my_orders   ─► OrderService    (the caller's own token)
 ```
 
@@ -28,21 +30,22 @@ Where the code lives (backend repo, `src/Services/AssistantService`):
 
 | File | Job |
 |---|---|
-| `Program.cs` | JWT auth, the feature flag, the endpoint `POST /assistant/chat`, wiring |
-| `Application/IChatModel.cs` | The model interface, plus the message and tool types |
-| `Application/IAssistantTool.cs` | What a tool is: a spec the model reads, and a `RunAsync` your code runs |
+| `Program.cs` | JWT auth, the feature flag, the endpoint `POST /assistant/chat`, choosing the model (`IChatClient`) |
+| `Application/IAssistantTool.cs` | What a tool is: a spec the model reads (`ToolSpec`), and a `RunAsync` your code runs |
+| `Application/AssistantToolFunction.cs` | Turns one of our tools into an Agent Framework `AIFunction`, per request, carrying the caller's token |
 | `Application/AssistantTools.cs` | `search_products`, `get_my_orders`, and one small HTTP helper |
-| `Application/AssistantRunner.cs` | The loop, the system prompt, the cart text |
+| `Application/AssistantRunner.cs` | The agent, the round limit, the system prompt, the cart text |
 | `Application/CartLine.cs` | One cart line sent by the browser |
-| `Infrastructure/OllamaChatModel.cs` | Talks to Ollama's `/api/chat` |
 
-Tests are in `tests/AssistantService.UnitTests`. They use a **scripted fake model**, so no test needs Ollama.
+Packages: `Microsoft.Agents.AI` (the agent), `OllamaSharp` (Ollama as an `IChatClient`), `Microsoft.Agents.AI.Anthropic` (the Anthropic SDK as an `IChatClient`). Tests are in `tests/AssistantService.UnitTests`. They use a **scripted fake `IChatClient`**, so no test needs a model.
 
 ### 1.2 The ideas, one at a time
 
-**A model behind an interface.** `IChatModel` has one method: *messages and tool specs in, one assistant message out*. Today it is Ollama. A hosted model (Claude, OpenAI, Gemini) would be a second class implementing the same interface; nothing else changes. This also makes tests easy: a fake model plays back a script.
+**A model behind an interface.** The model is an `IChatClient` (the standard .NET AI interface from `Microsoft.Extensions.AI`): *messages and tools in, an answer or tool requests out*. Ollama (through OllamaSharp) and the Anthropic API (through its SDK) are both just an `IChatClient`, picked by `Assistant:Provider`; nothing else changes. This also makes tests easy: a fake client plays back a script.
 
-**Tools are the only way the model touches anything.** A tool is a name, a plain-English description, and a JSON schema for its arguments. The model reads the descriptions and decides which to call. When it asks, `AssistantRunner` looks the name up in a dictionary and runs *your* code. A name that is not in the dictionary gets "There is no such tool." The model cannot do anything you did not write a tool for.
+**The agent runs the loop.** `AssistantRunner` builds a Microsoft Agent Framework `ChatClientAgent` per request: the instructions (prompt + cart), the tools, and the model wrapped in a function-invocation loop capped at 4 rounds. Our first version wrote that loop by hand (about 30 lines, described in Part 2, Step 6); the framework's does the same job and also gives us threads, memory, MCP tools and multi-agent workflows when we need them.
+
+**Tools are the only way the model touches anything.** A tool is a name, a plain-English description, and a JSON schema for its arguments. The model reads the descriptions and decides which to call. When it asks, the agent runs *your* code. A name it does not know gets an error result back ("not found"), and nothing runs. The model cannot do anything you did not write a tool for.
 
 **Tools are read-only, and run as the caller.** `get_my_orders` forwards the caller's `Authorization` header to the order service, which returns only that user's orders. The assistant therefore can never see another customer's data, even if the model is tricked: the permission check is in the order service, not in the prompt. If you remember one security rule from this guide, it is this one: *never rely on the prompt to protect data; rely on the service the tool calls.*
 
@@ -64,8 +67,8 @@ Tests are in `tests/AssistantService.UnitTests`. They use a **scripted fake mode
 2. The gateway routes `/assistant/**` to the assistant service. The assistant cluster has `ActivityTimeout` of 2 min 10 s, because YARP's default of 100 s would cut a cold model.
 3. The service validates the JWT. No token: 401.
 4. `Assistant:Enabled` false: 503. Message empty or over 1000 characters: 400.
-5. `AssistantRunner.AskAsync` builds the conversation: the system prompt, a second system message with the cart, then the user's message.
-6. Loop (max 4): call the model with the messages and the tool specs. No tool calls → return the text. Tool calls → run each tool (with the caller's token), append the model's request and each result to the conversation, go round again.
+5. `AssistantRunner.AskAsync` builds the agent: instructions (the system prompt and the cart), the tools as functions carrying this caller's token, then runs it with the user's message.
+6. The agent's loop (max 4 model calls): call the model with the messages and the tools. No tool calls → return the text. Tool calls → run each tool, append the model's request and each result, go round again. Out of rounds with no words → "could not finish".
 7. Return `{ reply, toolsUsed }`.
 
 ### 1.4 Running it
@@ -119,6 +122,8 @@ A new ASP.NET minimal API (any language works; the ideas are identical). Add JWT
 
 ### Step 3. Define the model interface
 
+> **In .NET, prefer the standard pieces now:** `IChatClient` (Microsoft.Extensions.AI) as the model interface, a provider package that implements it (OllamaSharp, the Anthropic SDK, OpenAI…), and a Microsoft Agent Framework `ChatClientAgent` for Steps 3, 4 and 6. Wrap each tool as an `AIFunction` (see `AssistantToolFunction.cs`) and cap the loop with `UseFunctionInvocation(loop => loop.MaximumIterationsPerRequest = 4)`. Steps 3, 4 and 6 below show what those pieces do underneath, which is what you need to know to debug them, or to build this in a language without them.
+
 ```csharp
 public sealed record ChatMessage(string Role, string Content, IReadOnlyList<ToolCall>? ToolCalls = null, string? ToolName = null);
 public sealed record ToolCall(string Name, JsonElement Arguments);
@@ -134,7 +139,7 @@ Keep it this small. Everything provider-specific stays inside the implementation
 
 ### Step 4. Implement it for Ollama
 
-`POST /api/chat` with `model`, `stream:false`, `messages` and `tools`. Tools go in as `{ "type":"function", "function": { name, description, parameters } }`. The reply's `message` has `content` and maybe `tool_calls: [{ function: { name, arguments } }]` (arguments arrive as a JSON object). A tool result goes back as `{ "role":"tool", "tool_name": "...", "content": "..." }`, and the assistant message that asked for the tool must be included before it. See `OllamaChatModel.cs`. **Test it** with a stubbed `HttpMessageHandler` (see `OllamaChatModelTests.cs`): a spoken answer, a tool request, a tool result sent back, a failing server.
+`POST /api/chat` with `model`, `stream:false`, `messages` and `tools`. Tools go in as `{ "type":"function", "function": { name, description, parameters } }`. The reply's `message` has `content` and maybe `tool_calls: [{ function: { name, arguments } }]` (arguments arrive as a JSON object). A tool result goes back as `{ "role":"tool", "tool_name": "...", "content": "..." }`, and the assistant message that asked for the tool must be included before it. This is what OllamaSharp does for us now (our first version, `OllamaChatModel.cs`, is in the git history). If you write a client yourself, **test it** with a stubbed `HttpMessageHandler`: a spoken answer, a tool request, a tool result sent back, a failing server.
 
 ### Step 5. Write the tools
 
@@ -204,13 +209,15 @@ Merge with the flag off. Turn it on in one environment, watch the logs and the l
 | The health guard came last in the answer | Read the real answer | Prompt says the reply MUST begin with it |
 | A cold 7B model exceeded the gateway's 100 s default | Empty reply after exactly 100 s | `ActivityTimeout` 2 min 10 s on that cluster, 120 s in the proxy |
 | An edit script wrote a real line break inside a C# string | Build error "Newline in constant" | Edit the file directly and re-run the build |
+| The fake model replayed the *same* tool call (same call id) every round | Round-limit test saw 2 model calls, not 4: the framework will not re-run a call it already answered | The fake makes a fresh call id per round, as a real model does |
+| Docker in WSL stopped whenever no WSL session was open | Model call failed half-way ("response ended prematurely"); then `docker ps` was empty | Keep a WSL session open (a terminal, or `wsl -d Ubuntu -- sleep infinity`) while the stack runs |
 
 Three habits that paid off: **test with a scripted fake model** so the loop is proven without a GPU; **test the model client against a stubbed server** so the wire format is proven; and **always run the real model on real questions** before calling it done, because the unit tests cannot tell you the answer is good.
 
 ## Where to go next
 
 1. Conversation memory (send the last few turns).
-2. A hosted-model implementation of `IChatModel`, chosen by configuration.
+2. Agent Framework threads (`AgentSession`) for conversation memory, and MCP tools.
 3. An admin-only analytics tool (best sellers, bought together) and let the model phrase it.
 4. Write tools (add to cart) with an explicit "confirm" step the user clicks.
 5. An evaluation file of 30 questions with expected tool use, run against every model change.

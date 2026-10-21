@@ -184,8 +184,12 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Assistant__Enabled: ${ASSISTANT_ENABLED:-false}
       Assistant__Model: ${ASSISTANT_MODEL:-qwen2.5:7b}
+      Assistant__Provider: ${ASSISTANT_PROVIDER:-ollama}
+      Assistant__Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
+      Assistant__Anthropic__Model: ${ASSISTANT_ANTHROPIC_MODEL:-claude-haiku-5-5}
       Assistant__OllamaUrl: http://ollama:11434/
       Assistant__CatalogUrl: http://catalog-api:8080/
+      Assistant__InventoryUrl: http://inventory-api:8080/
       Assistant__OrderUrl: http://order-api:8080/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc

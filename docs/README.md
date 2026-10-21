@@ -1,4 +1,4 @@
-# Documentation index
+# Nova Commerce documentation index (the repository is still named TaskManager)
 
 Compact, verified knowledge about this repository. **Source code is the ultimate source of truth** — if a document disagrees with the code, the code wins and the document should be corrected.
 
