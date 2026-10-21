@@ -16,6 +16,12 @@ public class Product
     private readonly List<ProductAttribute> _attributes = new();
     public IReadOnlyList<ProductAttribute> Attributes => _attributes;
 
+    public int RatingCount { get; private set; }
+    public int RatingTotal { get; private set; }
+
+    /// <summary>The mean of the reviews' ratings to one decimal, or null while there are none.</summary>
+    public double? RatingAverage => RatingCount == 0 ? null : Math.Round((double)RatingTotal / RatingCount, 1);
+
     private readonly List<GalleryImage> _gallery = new();
     public IReadOnlyList<GalleryImage> Gallery => _gallery;
 
@@ -127,6 +133,16 @@ public class Product
 
         _gallery.Add(new GalleryImage(version, contentType));
         return true;
+    }
+
+    /// <summary>Kept on the product, recounted whenever a review changes, so a list needs no join.</summary>
+    public void SetRating(int count, int total)
+    {
+        if (count < 0 || total < 0)
+            throw new ArgumentException("A rating count cannot be negative.", nameof(count));
+
+        RatingCount = count;
+        RatingTotal = total;
     }
 
     public bool RemoveGalleryImage(string version) => _gallery.RemoveAll(x => x.Version == version) > 0;
