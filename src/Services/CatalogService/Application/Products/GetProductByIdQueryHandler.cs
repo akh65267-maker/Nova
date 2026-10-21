@@ -16,6 +16,6 @@ public sealed class GetProductByIdQueryHandler : IRequestHandler<GetProductByIdQ
     {
         var product = await _repo.GetByIdAsync(request.Id, cancellationToken);
 
-        return product is null ? null : ProductDto.From(product);
+        return product is null || (product.IsArchived && !request.IncludeArchived) ? null : ProductDto.From(product);
     }
 }

@@ -52,7 +52,7 @@ public class ProductsServiceTests
     {
         var product = new Product("Widget", "desc", 9.99m, "Electronics");
         _repo.Setup(x => x.SearchAsync(
-                "Electronics", null, null, null, ProductSortBy.Newest, 1, 20, It.IsAny<CancellationToken>()))
+                "Electronics", null, null, null, ProductSortBy.Newest, 1, 20, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { product }, 1));
 
         var sut = new ProductListQueryHandler(_repo.Object);
@@ -64,5 +64,72 @@ public class ProductsServiceTests
         Assert.Equal(1, result.TotalCount);
         Assert.Single(result.Items);
         Assert.Equal("Widget", result.Items.First().Name);
+    }
+
+    [Fact]
+    public async Task UpdateProductCommand_ChangesTheProductAndSaves()
+    {
+        var product = new Product("Widget", "desc", 9.99m, "Electronics");
+        _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
+        var sut = new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
+
+        var found = await sut.Handle(new UpdateProductCommand(product.Id, "Gadget", "new", 12m, "Home"), CancellationToken.None);
+
+        Assert.True(found);
+        Assert.Equal(("Gadget", "new", 12m, "Home"), (product.Name, product.Description, product.Price, product.Category));
+        _repo.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateProductCommand_WithInvalidPrice_ThrowsWithoutSaving()
+    {
+        var product = new Product("Widget", "desc", 9.99m, "Electronics");
+        _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
+        var sut = new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => sut.Handle(new UpdateProductCommand(product.Id, "Widget", "desc", -1m, "Electronics"), CancellationToken.None));
+
+        Assert.Equal(9.99m, product.Price);
+        _repo.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAndArchive_OfAMissingProduct_ReportNotFound()
+    {
+        _repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Product?)null);
+
+        Assert.False(await new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>())
+            .Handle(new UpdateProductCommand(Guid.NewGuid(), "A", "b", 1m, "C"), CancellationToken.None));
+        Assert.False(await new SetProductArchivedCommandHandler(_repo.Object, Mock.Of<ILogger<SetProductArchivedCommandHandler>>())
+            .Handle(new SetProductArchivedCommand(Guid.NewGuid(), true), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ArchivingAndRestoring_TogglesTheProductAndSaves()
+    {
+        var product = new Product("Widget", "desc", 9.99m, "Electronics");
+        _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
+        var sut = new SetProductArchivedCommandHandler(_repo.Object, Mock.Of<ILogger<SetProductArchivedCommandHandler>>());
+
+        await sut.Handle(new SetProductArchivedCommand(product.Id, true), CancellationToken.None);
+        Assert.True(product.IsArchived);
+        await sut.Handle(new SetProductArchivedCommand(product.Id, false), CancellationToken.None);
+        Assert.False(product.IsArchived);
+
+        _repo.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task GetProductByIdQuery_OfAnArchivedProduct_IsHiddenUnlessAskedFor()
+    {
+        var product = new Product("Widget", "desc", 9.99m, "Electronics");
+        product.Archive();
+        _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
+        var sut = new GetProductByIdQueryHandler(_repo.Object);
+
+        Assert.Null(await sut.Handle(new GetProductByIdQuery(product.Id), CancellationToken.None));
+        var admin = await sut.Handle(new GetProductByIdQuery(product.Id, IncludeArchived: true), CancellationToken.None);
+        Assert.True(admin!.IsArchived);
     }
 }

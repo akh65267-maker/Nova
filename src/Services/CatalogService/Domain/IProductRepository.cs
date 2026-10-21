@@ -12,6 +12,7 @@ public interface IProductRepository
         ProductSortBy sort,
         int page,
         int pageSize,
+        bool includeArchived,
         CancellationToken cancellationToken = default);
     Task AddAsync(Product product, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
