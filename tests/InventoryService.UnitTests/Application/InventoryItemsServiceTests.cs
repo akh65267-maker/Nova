@@ -134,6 +134,31 @@ public class InventoryItemsServiceTests
     }
 
     [Fact]
+    public async Task GetAvailabilityManyAsync_AnswersEachDistinctProductOnce_AndLeavesOutUnknownOnes()
+    {
+        var known = Guid.NewGuid();
+        var unknown = Guid.NewGuid();
+        _repo.Setup(x => x.GetByProductIdAsync(known, It.IsAny<CancellationToken>())).ReturnsAsync(new InventoryItem(known, 0));
+        _repo.Setup(x => x.GetByProductIdAsync(unknown, It.IsAny<CancellationToken>())).ReturnsAsync((InventoryItem?)null);
+
+        var result = await _sut.GetAvailabilityManyAsync([known, unknown, known]);
+
+        var only = Assert.Single(result);
+        Assert.Equal(known, only.ProductId);
+        Assert.Equal(StockStatus.OutOfStock, only.Availability);
+        _repo.Verify(x => x.GetByProductIdAsync(known, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAvailabilityManyAsync_MoreThanTheLimit_IsRejected()
+    {
+        var ids = Enumerable.Range(0, InventoryItemsService.MaxBatch + 1).Select(_ => Guid.NewGuid()).ToList();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _sut.GetAvailabilityManyAsync(ids));
+        Assert.Empty(await _sut.GetAvailabilityManyAsync(null));
+    }
+
+    [Fact]
     public void TheAvailabilityAnswer_HasNoFieldThatCouldCarryTheExactQuantityAboveTheCap()
     {
         // The only number in the public answer is Remaining, and the service nulls it above the cap.
