@@ -99,6 +99,17 @@ app.MapGet("/basket", async (
     return Results.Ok(basket);
 }).RequireAuthorization();
 
+app.MapPut("/basket", async (
+    ReplaceBasketRequest request,
+    ClaimsPrincipal user,
+    BasketsService service,
+    CancellationToken cancellationToken) =>
+{
+    var basket = await service.ReplaceAsync(user.GetUserId(), request, cancellationToken);
+
+    return Results.Ok(basket);
+}).RequireAuthorization();
+
 app.MapPost("/basket/items", async (
     AddBasketItemRequest request,
     ClaimsPrincipal user,
