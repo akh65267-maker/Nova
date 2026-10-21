@@ -1,9 +1,11 @@
 using System.Text;
 using AssistantService.Application;
-using AssistantService.Infrastructure;
+using Anthropic;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.AI;
 using Microsoft.IdentityModel.Tokens;
 using Observability;
+using OllamaSharp;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -45,11 +47,18 @@ if (string.Equals(builder.Configuration["Assistant:Provider"], "anthropic", Stri
 {
     if (string.IsNullOrWhiteSpace(builder.Configuration["Assistant:Anthropic:ApiKey"]))
         throw new InvalidOperationException("Assistant:Anthropic:ApiKey is missing.");
-    builder.Services.AddHttpClient<IChatModel, AnthropicChatModel>(c => { c.BaseAddress = new Uri("https://api.anthropic.com/"); c.Timeout = TimeSpan.FromSeconds(120); });
+    var anthropicModel = builder.Configuration["Assistant:Anthropic:Model"] ?? "claude-haiku-5-5";
+    builder.Services.AddSingleton<IChatClient>(_ => new AnthropicClient
+    {
+        ApiKey = builder.Configuration["Assistant:Anthropic:ApiKey"]!,
+        Timeout = TimeSpan.FromSeconds(120),
+    }.AsIChatClient(anthropicModel, 1024));
 }
 else
 {
-    builder.Services.AddHttpClient<IChatModel, OllamaChatModel>(c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });
+    var ollamaModel = builder.Configuration["Assistant:Model"] ?? "qwen2.5:7b";
+    builder.Services.AddHttpClient("ollama", c => { c.BaseAddress = Address("Assistant:OllamaUrl"); c.Timeout = TimeSpan.FromSeconds(120); });
+    builder.Services.AddScoped<IChatClient>(sp => new OllamaApiClient(sp.GetRequiredService<IHttpClientFactory>().CreateClient("ollama"), ollamaModel));
 }
 builder.Services.AddSingleton<IAssistantTool, SearchProductsTool>();
 builder.Services.AddSingleton<IAssistantTool, GetMyOrdersTool>();
@@ -67,6 +76,7 @@ app.MapPost("/assistant/chat", async (
     HttpRequest http,
     AssistantRunner runner,
     IConfiguration configuration,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     if (!configuration.GetValue<bool>("Assistant:Enabled"))
@@ -80,8 +90,11 @@ app.MapPost("/assistant/chat", async (
     {
         return Results.Ok(await runner.AskAsync(message, http.Headers.Authorization.ToString(), request.Cart, cancellationToken));
     }
-    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
     {
+        // Each model client fails in its own way (OllamaSharp, the Anthropic SDK); to the caller it is all
+        // "the model is not available", and the details go to the log.
+        logger.LogWarning(ex, "The assistant's model call failed");
         return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The assistant's model is not available right now.");
     }
 }).RequireAuthorization();

@@ -1,9 +1,15 @@
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
 namespace AssistantService.Application;
 
 public sealed record AssistantReply(string Reply, IReadOnlyList<string> ToolsUsed);
 
-/// <summary>Asks the model, runs the read-only tools it asks for, and gives the results back until it answers in words.</summary>
-public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool> tools)
+/// <summary>
+/// A Microsoft Agent Framework agent over whichever model is configured (local Ollama or the Anthropic API):
+/// it asks the model, runs the read-only tools it asks for, and gives the results back until it answers in words.
+/// </summary>
+public sealed class AssistantRunner(IChatClient model, IEnumerable<IAssistantTool> tools)
 {
     public const int MaxMessageLength = 1000;
     public const int MaxRounds = 4;
@@ -38,31 +44,32 @@ public sealed class AssistantRunner(IChatModel model, IEnumerable<IAssistantTool
         return "The customer's cart right now:\n" + string.Join('\n', lines);
     }
 
-    private readonly IReadOnlyDictionary<string, IAssistantTool> _tools = tools.ToDictionary(t => t.Spec.Name);
+    public const string CouldNotFinish = "I could not finish looking that up. Please try a simpler question.";
+
+    // The framework's function-calling loop around the model, capped so a model that keeps asking for tools
+    // stops after MaxRounds model calls.
+    private readonly IChatClient _client = new ChatClientBuilder(model)
+        .UseFunctionInvocation(configure: loop => loop.MaximumIterationsPerRequest = MaxRounds)
+        .Build();
 
     public async Task<AssistantReply> AskAsync(string message, string? authorization, IReadOnlyList<CartLine>? cart, CancellationToken cancellationToken)
     {
-        var messages = new List<ChatMessage> { new("system", SystemPrompt), new("system", DescribeCart(cart)), new("user", message) };
         var used = new List<string>();
-        var specs = _tools.Values.Select(t => t.Spec).ToList();
-
-        for (var round = 0; round < MaxRounds; round++)
+        var agent = new ChatClientAgent(_client, new ChatClientAgentOptions
         {
-            var answer = await model.CompleteAsync(messages, specs, cancellationToken);
-            if (answer.ToolCalls is not { Count: > 0 })
-                return new AssistantReply(answer.Content, used);
-
-            messages.Add(answer);
-            foreach (var call in answer.ToolCalls)
+            Name = "shop-assistant",
+            UseProvidedChatClientAsIs = true, // the loop above is already there; do not wrap a second one
+            ChatOptions = new ChatOptions
             {
-                var result = _tools.TryGetValue(call.Name, out var tool)
-                    ? await tool.RunAsync(call.Arguments, authorization, cancellationToken)
-                    : "There is no such tool.";
-                used.Add(call.Name);
-                messages.Add(new ChatMessage("tool", result, ToolName: call.Name));
-            }
-        }
+                Instructions = SystemPrompt + "\n\n" + DescribeCart(cart),
+                Tools = tools.Select(t => (AITool)new AssistantToolFunction(t, authorization, used)).ToList(),
+            },
+        });
 
-        return new AssistantReply("I could not finish looking that up. Please try a simpler question.", used);
+        var response = await agent.RunAsync(message, cancellationToken: cancellationToken);
+
+        // Out of rounds, the last answer is a request for yet another tool, with no words in it.
+        var reply = response.Text.Trim();
+        return new AssistantReply(reply.Length > 0 ? reply : CouldNotFinish, used);
     }
 }
