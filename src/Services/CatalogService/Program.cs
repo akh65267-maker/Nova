@@ -101,6 +101,7 @@ app.MapGet("/products", async (
         Sort: sort,
         Page: page,
         PageSize: pageSize,
+        Brand: query["brand"].ToString() is { Length: > 0 } brand ? brand : null,
         // Archived products are for the admin console only; anyone else asking gets the shop's list.
         IncludeArchived: query["includeArchived"] == "true" && httpRequest.HttpContext.User.IsInRole("Admin")), cancellationToken);
 
@@ -150,6 +151,9 @@ static IResult CategoryProblem(CategoryOutcome outcome) => outcome switch
     _ => Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This category still has products. Move or delete them first."),
 };
 
+app.MapGet("/products/brands", async (IMediator mediator, CancellationToken cancellationToken) =>
+    Results.Ok(await mediator.Send(new ListBrandsQuery(), cancellationToken)));
+
 app.MapGet("/products/{id:guid}", async (
     Guid id,
     HttpRequest httpRequest,
@@ -166,7 +170,7 @@ app.MapPost("/products", async (
     IMediator mediator,
     CancellationToken cancellationToken) =>
 {
-    var id = await mediator.Send(new CreateProductCommand(request.Name, request.Description, request.Price, request.Category), cancellationToken);
+    var id = await mediator.Send(new CreateProductCommand(request.Name, request.Description, request.Price, request.Category, request.Brand), cancellationToken);
 
     return Results.Created($"/products/{id}", new { id });
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
@@ -177,7 +181,7 @@ app.MapPut("/products/{id:guid}", async (
     IMediator mediator,
     CancellationToken cancellationToken) =>
 {
-    var found = await mediator.Send(new UpdateProductCommand(id, request.Name, request.Description, request.Price, request.Category), cancellationToken);
+    var found = await mediator.Send(new UpdateProductCommand(id, request.Name, request.Description, request.Price, request.Category, request.Brand), cancellationToken);
 
     return found ? Results.NoContent() : Results.NotFound();
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));

@@ -34,12 +34,16 @@ public class ProductRepository : IProductRepository
         int page,
         int pageSize,
         bool includeArchived,
+        string? brand,
         CancellationToken cancellationToken = default)
     {
         var query = _db.Products.AsNoTracking().AsQueryable();
 
         if (!includeArchived)
             query = query.Where(x => x.ArchivedAtUtc == null);
+
+        if (!string.IsNullOrWhiteSpace(brand))
+            query = query.Where(x => x.Brand == brand);
 
         if (!string.IsNullOrWhiteSpace(category))
             query = query.Where(x => x.Category == category);
@@ -51,7 +55,7 @@ public class ProductRepository : IProductRepository
             query = query.Where(x => x.Price <= maxPrice.Value);
 
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(x => EF.Functions.ILike(x.Name, $"%{search}%"));
+            query = query.Where(x => EF.Functions.ILike(x.Name, $"%{search}%") || (x.Brand != null && EF.Functions.ILike(x.Brand, $"%{search}%")));
 
         query = sort switch
         {
@@ -69,6 +73,18 @@ public class ProductRepository : IProductRepository
             .ToListAsync(cancellationToken);
 
         return (items, totalCount);
+    }
+
+    public async Task<IReadOnlyCollection<(string Brand, int ProductCount)>> ListBrandsAsync(CancellationToken cancellationToken = default)
+    {
+        var brands = await _db.Products
+            .Where(x => x.ArchivedAtUtc == null && x.Brand != null)
+            .GroupBy(x => x.Brand!)
+            .Select(g => new { Brand = g.Key, Count = g.Count() })
+            .OrderBy(x => x.Brand)
+            .ToListAsync(cancellationToken);
+
+        return brands.Select(x => (x.Brand, x.Count)).ToList();
     }
 
     public async Task AddAsync(Product product, CancellationToken cancellationToken = default)

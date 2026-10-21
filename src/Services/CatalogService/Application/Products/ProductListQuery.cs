@@ -11,4 +11,5 @@ public sealed record ProductListQuery(
     ProductSortBy Sort,
     int Page,
     int PageSize,
-    bool IncludeArchived = false) : IRequest<ProductListResult>;
+    bool IncludeArchived = false,
+    string? Brand = null) : IRequest<ProductListResult>;

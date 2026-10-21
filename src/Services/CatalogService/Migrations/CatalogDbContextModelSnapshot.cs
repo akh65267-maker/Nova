@@ -53,6 +53,10 @@ namespace CatalogService.Migrations
                     b.Property<DateTimeOffset?>("ArchivedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Brand")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -84,6 +88,8 @@ namespace CatalogService.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Brand");
 
                     b.HasIndex("Category");
 
