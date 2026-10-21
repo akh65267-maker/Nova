@@ -87,6 +87,18 @@ public class ProductRepository : IProductRepository
         return brands.Select(x => (x.Brand, x.Count)).ToList();
     }
 
+    public async Task<IReadOnlyCollection<Product>> ListRelatedAsync(Guid productId, string category, string? brand, int limit, CancellationToken cancellationToken = default)
+    {
+        return await _db.Products
+            .AsNoTracking()
+            .Where(x => x.Id != productId && x.ArchivedAtUtc == null
+                && (x.Category == category || (brand != null && x.Brand == brand)))
+            .OrderByDescending(x => (x.Category == category ? 1 : 0) + (brand != null && x.Brand == brand ? 2 : 0))
+            .ThenByDescending(x => x.CreatedAtUtc)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddAsync(Product product, CancellationToken cancellationToken = default)
     {
         await _db.Products.AddAsync(product, cancellationToken);

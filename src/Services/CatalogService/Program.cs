@@ -165,6 +165,17 @@ app.MapGet("/products/{id:guid}", async (
     return product is null ? Results.NotFound() : Results.Ok(product);
 });
 
+app.MapGet("/products/{id:guid}/related", async (
+    Guid id,
+    int? limit,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var related = await mediator.Send(new RelatedProductsQuery(id, limit is > 0 and <= 12 ? limit.Value : 4), cancellationToken);
+
+    return related is null ? Results.NotFound() : Results.Ok(related);
+});
+
 app.MapPost("/products", async (
     CreateProductRequest request,
     IMediator mediator,
