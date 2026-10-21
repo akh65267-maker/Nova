@@ -170,7 +170,7 @@ app.MapPost("/products", async (
     IMediator mediator,
     CancellationToken cancellationToken) =>
 {
-    var id = await mediator.Send(new CreateProductCommand(request.Name, request.Description, request.Price, request.Category, request.Brand), cancellationToken);
+    var id = await mediator.Send(new CreateProductCommand(request.Name, request.Description, request.Price, request.Category, request.Brand, request.Attributes), cancellationToken);
 
     return Results.Created($"/products/{id}", new { id });
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
@@ -181,7 +181,7 @@ app.MapPut("/products/{id:guid}", async (
     IMediator mediator,
     CancellationToken cancellationToken) =>
 {
-    var found = await mediator.Send(new UpdateProductCommand(id, request.Name, request.Description, request.Price, request.Category, request.Brand), cancellationToken);
+    var found = await mediator.Send(new UpdateProductCommand(id, request.Name, request.Description, request.Price, request.Category, request.Brand, request.Attributes), cancellationToken);
 
     return found ? Results.NoContent() : Results.NotFound();
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));

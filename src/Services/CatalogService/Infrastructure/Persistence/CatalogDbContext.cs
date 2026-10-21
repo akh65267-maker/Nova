@@ -62,6 +62,17 @@ public class CatalogDbContext : DbContext
             entity.Property(x => x.Brand)
                 .HasMaxLength(Product.MaxBrandLength);
 
+            entity.OwnsMany(x => x.Attributes, attribute =>
+            {
+                attribute.ToTable("ProductAttributes");
+                attribute.WithOwner().HasForeignKey("ProductId");
+                attribute.Property<int>("Id");
+                attribute.HasKey("Id");
+                attribute.Property(a => a.Name).IsRequired().HasMaxLength(ProductAttribute.MaxNameLength);
+                attribute.Property(a => a.Value).IsRequired().HasMaxLength(ProductAttribute.MaxValueLength);
+            });
+            entity.Navigation(x => x.Attributes).UsePropertyAccessMode(PropertyAccessMode.Field);
+
             entity.HasIndex(x => x.Category);
             entity.HasIndex(x => x.Brand);
         });
