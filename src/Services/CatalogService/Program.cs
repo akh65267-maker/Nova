@@ -259,6 +259,72 @@ app.MapPut("/products/{id:guid}/image", async (
     };
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
 
+// Extra pictures beside the main one. The body is the picture itself, as for the main picture.
+app.MapGet("/products/{id:guid}/gallery/{version}", async (
+    Guid id,
+    string version,
+    HttpResponse response,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var image = await mediator.Send(new GetGalleryImageQuery(id, version), cancellationToken);
+    if (image is null)
+        return Results.NotFound();
+
+    response.Headers.XContentTypeOptions = "nosniff";
+    response.Headers.CacheControl = "public, max-age=31536000, immutable";
+
+    return Results.File(image.Content, image.ContentType, entityTag: new EntityTagHeaderValue($"\"{version}\""));
+});
+
+app.MapPost("/products/{id:guid}/gallery", async (
+    Guid id,
+    HttpRequest request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var tooLarge = Results.Problem(
+        statusCode: StatusCodes.Status413PayloadTooLarge,
+        title: $"A product picture can be at most {ProductImage.MaxBytes / (1024 * 1024)} MB.");
+
+    if (request.ContentLength > ProductImage.MaxBytes)
+        return tooLarge;
+
+    var buffer = new byte[ProductImage.MaxBytes + 1];
+    var length = 0;
+    int read;
+    while (length < buffer.Length
+           && (read = await request.Body.ReadAsync(buffer.AsMemory(length), cancellationToken)) > 0)
+    {
+        length += read;
+    }
+
+    if (length > ProductImage.MaxBytes)
+        return tooLarge;
+
+    var result = await mediator.Send(new AddGalleryImageCommand(id, buffer[..length]), cancellationToken);
+
+    return result.Outcome switch
+    {
+        AddGalleryImageOutcome.Added => Results.Ok(new { url = result.Url }),
+        AddGalleryImageOutcome.ProductNotFound => Results.NotFound(),
+        AddGalleryImageOutcome.TooMany => Results.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: $"A product can have at most {GalleryImage.MaxPerProduct} gallery pictures."),
+        _ => Results.Problem(
+            statusCode: StatusCodes.Status415UnsupportedMediaType,
+            title: "The picture must be a JPEG, PNG or WebP image."),
+    };
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapDelete("/products/{id:guid}/gallery/{version}", async (
+    Guid id,
+    string version,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new RemoveGalleryImageCommand(id, version), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
 app.MapDelete("/products/{id:guid}/image", async (
     Guid id,
     IMediator mediator,

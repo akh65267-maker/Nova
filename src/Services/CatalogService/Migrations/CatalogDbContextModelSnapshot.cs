@@ -98,6 +98,37 @@ namespace CatalogService.Migrations
 
             modelBuilder.Entity("CatalogService.Domain.Product", b =>
                 {
+                    b.OwnsMany("CatalogService.Domain.GalleryImage", "Gallery", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("ContentType")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)");
+
+                            b1.Property<Guid>("ProductId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Version")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("ProductId");
+
+                            b1.ToTable("ProductGalleryImages", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ProductId");
+                        });
+
                     b.OwnsMany("CatalogService.Domain.ProductAttribute", "Attributes", b1 =>
                         {
                             b1.Property<int>("Id")
@@ -130,6 +161,8 @@ namespace CatalogService.Migrations
                         });
 
                     b.Navigation("Attributes");
+
+                    b.Navigation("Gallery");
                 });
 #pragma warning restore 612, 618
         }
