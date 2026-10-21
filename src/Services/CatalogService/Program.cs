@@ -1,5 +1,6 @@
 using System.Text;
 using CatalogService;
+using CatalogService.Application.Categories;
 using CatalogService.Application.Products;
 using CatalogService.Domain;
 using CatalogService.Infrastructure.Persistence;
@@ -27,6 +28,7 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<CatalogDbContext>();
 
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddSingleton<IProductImageStore, FileProductImageStore>();
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Program>());
 
@@ -104,6 +106,49 @@ app.MapGet("/products", async (
 
     return Results.Ok(result);
 });
+
+app.MapGet("/categories", async (IMediator mediator, CancellationToken cancellationToken) =>
+    Results.Ok(await mediator.Send(new ListCategoriesQuery(), cancellationToken)));
+
+app.MapPost("/categories", async (
+    CategoryRequest request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var (outcome, category) = await mediator.Send(new CreateCategoryCommand(request.Name), cancellationToken);
+
+    return outcome == CategoryOutcome.Done
+        ? Results.Created($"/categories/{category!.Id}", category)
+        : CategoryProblem(outcome);
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapPut("/categories/{id:guid}", async (
+    Guid id,
+    CategoryRequest request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var outcome = await mediator.Send(new RenameCategoryCommand(id, request.Name), cancellationToken);
+
+    return outcome == CategoryOutcome.Done ? Results.NoContent() : CategoryProblem(outcome);
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapDelete("/categories/{id:guid}", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var outcome = await mediator.Send(new DeleteCategoryCommand(id), cancellationToken);
+
+    return outcome == CategoryOutcome.Done ? Results.NoContent() : CategoryProblem(outcome);
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+static IResult CategoryProblem(CategoryOutcome outcome) => outcome switch
+{
+    CategoryOutcome.NotFound => Results.NotFound(),
+    CategoryOutcome.NameTaken => Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A category with this name already exists."),
+    _ => Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This category still has products. Move or delete them first."),
+};
 
 app.MapGet("/products/{id:guid}", async (
     Guid id,
