@@ -8,11 +8,17 @@ namespace CatalogService.UnitTests.Application;
 public class ProductsServiceTests
 {
     private readonly Mock<IProductRepository> _repo = new();
+    private readonly Mock<ICategoryRepository> _categories = new();
+
+    public ProductsServiceTests()
+    {
+        _categories.Setup(x => x.ExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+    }
 
     [Fact]
     public async Task CreateProductCommand_WithInvalidName_ThrowsWithoutAdding()
     {
-        var sut = new CreateProductCommandHandler(_repo.Object, Mock.Of<ILogger<CreateProductCommandHandler>>());
+        var sut = new CreateProductCommandHandler(_repo.Object, _categories.Object, Mock.Of<ILogger<CreateProductCommandHandler>>());
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => sut.Handle(new CreateProductCommand("", "desc", 9.99m, "Electronics"), CancellationToken.None));
@@ -23,7 +29,7 @@ public class ProductsServiceTests
     [Fact]
     public async Task CreateProductCommand_WithValidRequest_AddsAndSavesAndReturnsId()
     {
-        var sut = new CreateProductCommandHandler(_repo.Object, Mock.Of<ILogger<CreateProductCommandHandler>>());
+        var sut = new CreateProductCommandHandler(_repo.Object, _categories.Object, Mock.Of<ILogger<CreateProductCommandHandler>>());
 
         var id = await sut.Handle(new CreateProductCommand("Widget", "desc", 9.99m, "Electronics"), CancellationToken.None);
 
@@ -71,7 +77,7 @@ public class ProductsServiceTests
     {
         var product = new Product("Widget", "desc", 9.99m, "Electronics");
         _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
-        var sut = new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
+        var sut = new UpdateProductCommandHandler(_repo.Object, _categories.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
 
         var found = await sut.Handle(new UpdateProductCommand(product.Id, "Gadget", "new", 12m, "Home"), CancellationToken.None);
 
@@ -85,7 +91,7 @@ public class ProductsServiceTests
     {
         var product = new Product("Widget", "desc", 9.99m, "Electronics");
         _repo.Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>())).ReturnsAsync(product);
-        var sut = new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
+        var sut = new UpdateProductCommandHandler(_repo.Object, _categories.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>());
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => sut.Handle(new UpdateProductCommand(product.Id, "Widget", "desc", -1m, "Electronics"), CancellationToken.None));
@@ -99,7 +105,7 @@ public class ProductsServiceTests
     {
         _repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Product?)null);
 
-        Assert.False(await new UpdateProductCommandHandler(_repo.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>())
+        Assert.False(await new UpdateProductCommandHandler(_repo.Object, _categories.Object, Mock.Of<ILogger<UpdateProductCommandHandler>>())
             .Handle(new UpdateProductCommand(Guid.NewGuid(), "A", "b", 1m, "C"), CancellationToken.None));
         Assert.False(await new SetProductArchivedCommandHandler(_repo.Object, Mock.Of<ILogger<SetProductArchivedCommandHandler>>())
             .Handle(new SetProductArchivedCommand(Guid.NewGuid(), true), CancellationToken.None));
