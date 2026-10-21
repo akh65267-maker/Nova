@@ -1,7 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using CatalogService;
 using CatalogService.Application.Categories;
 using CatalogService.Application.Products;
+using CatalogService.Application.Reviews;
 using CatalogService.Domain;
 using CatalogService.Infrastructure.Persistence;
 using CatalogService.Infrastructure.Storage;
@@ -29,6 +32,7 @@ builder.Services.AddHealthChecks()
 
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
+builder.Services.AddScoped<IReviewRepository, ReviewRepository>();
 builder.Services.AddSingleton<IProductImageStore, FileProductImageStore>();
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Program>());
 
@@ -176,6 +180,55 @@ app.MapGet("/products/{id:guid}/related", async (
 
     return related is null ? Results.NotFound() : Results.Ok(related);
 });
+
+// Reviews: anyone can read them; a signed-in customer writes, changes or removes their own.
+app.MapGet("/products/{id:guid}/reviews", async (
+    Guid id,
+    HttpRequest httpRequest,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var reviews = await mediator.Send(new ListReviewsQuery(id, CallerId(httpRequest.HttpContext.User)), cancellationToken);
+
+    return reviews is null ? Results.NotFound() : Results.Ok(reviews);
+});
+
+app.MapPut("/products/{id:guid}/reviews", async (
+    Guid id,
+    ReviewRequest request,
+    HttpRequest httpRequest,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var user = httpRequest.HttpContext.User;
+    var saved = await mediator.Send(
+        new SaveReviewCommand(id, CallerId(user)!.Value, user.FindFirstValue(JwtRegisteredClaimNames.Email) ?? string.Empty, request.Rating, request.Body),
+        cancellationToken);
+
+    return saved ? Results.NoContent() : Results.NotFound();
+}).RequireAuthorization();
+
+app.MapDelete("/products/{id:guid}/reviews", async (
+    Guid id,
+    HttpRequest httpRequest,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new DeleteOwnReviewCommand(id, CallerId(httpRequest.HttpContext.User)!.Value), cancellationToken)
+        ? Results.NoContent()
+        : Results.NotFound())
+    .RequireAuthorization();
+
+// Moderation.
+app.MapDelete("/products/{id:guid}/reviews/{reviewId:guid}", async (
+    Guid id,
+    Guid reviewId,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new DeleteReviewCommand(id, reviewId), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+static Guid? CallerId(ClaimsPrincipal user) =>
+    Guid.TryParse(user.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id) ? id : null;
 
 app.MapPost("/products", async (
     CreateProductRequest request,

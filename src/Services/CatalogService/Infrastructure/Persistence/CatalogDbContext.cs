@@ -11,6 +11,7 @@ public class CatalogDbContext : DbContext
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Review> Reviews => Set<Review>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,8 +29,25 @@ public class CatalogDbContext : DbContext
             entity.HasIndex(x => x.Name).IsUnique();
         });
 
+        modelBuilder.Entity<Review>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.AuthorName).IsRequired().HasMaxLength(Review.MaxAuthorLength);
+            entity.Property(x => x.Body).IsRequired().HasMaxLength(Review.MaxBodyLength);
+            entity.Property(x => x.Rating).IsRequired();
+            entity.Property(x => x.CreatedAtUtc).IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).IsRequired();
+
+            entity.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+
+            // One review per customer per product; the index also serves the product's list.
+            entity.HasIndex(x => new { x.ProductId, x.UserId }).IsUnique();
+        });
+
         modelBuilder.Entity<Product>(entity =>
         {
+            entity.Ignore(x => x.RatingAverage);
             entity.HasKey(x => x.Id);
 
             entity.Property(x => x.Name)
