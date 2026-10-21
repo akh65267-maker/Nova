@@ -22,6 +22,7 @@ public sealed class ProductListQueryHandler : IRequestHandler<ProductListQuery, 
             request.Sort,
             request.Page,
             request.PageSize,
+            request.IncludeArchived,
             cancellationToken);
 
         var dtos = items.Select(ProductDto.From).ToList();

@@ -98,17 +98,20 @@ app.MapGet("/products", async (
         Search: query["search"].ToString() is { Length: > 0 } search ? search : null,
         Sort: sort,
         Page: page,
-        PageSize: pageSize), cancellationToken);
+        PageSize: pageSize,
+        // Archived products are for the admin console only; anyone else asking gets the shop's list.
+        IncludeArchived: query["includeArchived"] == "true" && httpRequest.HttpContext.User.IsInRole("Admin")), cancellationToken);
 
     return Results.Ok(result);
 });
 
 app.MapGet("/products/{id:guid}", async (
     Guid id,
+    HttpRequest httpRequest,
     IMediator mediator,
     CancellationToken cancellationToken) =>
 {
-    var product = await mediator.Send(new GetProductByIdQuery(id), cancellationToken);
+    var product = await mediator.Send(new GetProductByIdQuery(id, httpRequest.HttpContext.User.IsInRole("Admin")), cancellationToken);
 
     return product is null ? Results.NotFound() : Results.Ok(product);
 });
@@ -122,6 +125,32 @@ app.MapPost("/products", async (
 
     return Results.Created($"/products/{id}", new { id });
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapPut("/products/{id:guid}", async (
+    Guid id,
+    CreateProductRequest request,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+{
+    var found = await mediator.Send(new UpdateProductCommand(id, request.Name, request.Description, request.Price, request.Category), cancellationToken);
+
+    return found ? Results.NoContent() : Results.NotFound();
+}).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+// Archiving takes a product off sale without deleting it: orders still refer to it.
+app.MapPost("/products/{id:guid}/archive", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new SetProductArchivedCommand(id, Archived: true), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+app.MapPost("/products/{id:guid}/restore", async (
+    Guid id,
+    IMediator mediator,
+    CancellationToken cancellationToken) =>
+    await mediator.Send(new SetProductArchivedCommand(id, Archived: false), cancellationToken) ? Results.NoContent() : Results.NotFound())
+    .RequireAuthorization(policy => policy.RequireRole("Admin"));
 
 // The picture itself: public, like the product it belongs to. The URL in a product carries the
 // picture's version, so a browser may keep it for good; a request without one revalidates.

@@ -33,9 +33,13 @@ public class ProductRepository : IProductRepository
         ProductSortBy sort,
         int page,
         int pageSize,
+        bool includeArchived,
         CancellationToken cancellationToken = default)
     {
         var query = _db.Products.AsNoTracking().AsQueryable();
+
+        if (!includeArchived)
+            query = query.Where(x => x.ArchivedAtUtc == null);
 
         if (!string.IsNullOrWhiteSpace(category))
             query = query.Where(x => x.Category == category);

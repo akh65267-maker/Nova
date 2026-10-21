@@ -36,6 +36,8 @@ public class CatalogDbContext : DbContext
             entity.Property(x => x.CreatedAtUtc)
                 .IsRequired();
 
+            entity.Ignore(x => x.IsArchived);
+
             entity.Property(x => x.ImageContentType)
                 .HasMaxLength(50);
 

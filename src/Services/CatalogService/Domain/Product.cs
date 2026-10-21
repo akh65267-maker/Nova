@@ -10,12 +10,22 @@ public class Product
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public string? ImageContentType { get; private set; }
     public string? ImageVersion { get; private set; }
+    public DateTimeOffset? ArchivedAtUtc { get; private set; }
 
     private Product()
     {
     }
 
     public Product(string name, string description, decimal price, string category)
+    {
+        Id = Guid.NewGuid();
+        CreatedAtUtc = DateTimeOffset.UtcNow;
+        Update(name, description, price, category);
+    }
+
+    public bool IsArchived => ArchivedAtUtc is not null;
+
+    public void Update(string name, string description, decimal price, string category)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Product name is required.", nameof(name));
@@ -26,13 +36,16 @@ public class Product
         if (string.IsNullOrWhiteSpace(category))
             throw new ArgumentException("Product category is required.", nameof(category));
 
-        Id = Guid.NewGuid();
         Name = name;
         Description = description ?? string.Empty;
         Price = price;
         Category = category;
-        CreatedAtUtc = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>Takes the product off sale. It is kept, not deleted: orders still refer to it.</summary>
+    public void Archive() => ArchivedAtUtc ??= DateTimeOffset.UtcNow;
+
+    public void Restore() => ArchivedAtUtc = null;
 
     public void SetImage(string contentType, string version)
     {
