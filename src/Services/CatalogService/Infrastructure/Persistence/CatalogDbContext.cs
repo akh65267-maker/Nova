@@ -73,6 +73,17 @@ public class CatalogDbContext : DbContext
             });
             entity.Navigation(x => x.Attributes).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+            entity.OwnsMany(x => x.Gallery, image =>
+            {
+                image.ToTable("ProductGalleryImages");
+                image.WithOwner().HasForeignKey("ProductId");
+                image.Property<int>("Id");
+                image.HasKey("Id");
+                image.Property(g => g.Version).IsRequired().HasMaxLength(64);
+                image.Property(g => g.ContentType).IsRequired().HasMaxLength(50);
+            });
+            entity.Navigation(x => x.Gallery).UsePropertyAccessMode(PropertyAccessMode.Field);
+
             entity.HasIndex(x => x.Category);
             entity.HasIndex(x => x.Brand);
         });

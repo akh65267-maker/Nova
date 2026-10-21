@@ -30,5 +30,7 @@ public static class ProductImage
     public static string VersionOf(ReadOnlySpan<byte> bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes))[..16].ToLowerInvariant();
 
+    public static string GalleryUrlFor(Guid productId, string version) => $"/products/{productId}/gallery/{version}";
+
     public static string UrlFor(Guid productId, string version) => $"/products/{productId}/image?v={version}";
 }

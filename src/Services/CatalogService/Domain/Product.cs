@@ -16,6 +16,9 @@ public class Product
     private readonly List<ProductAttribute> _attributes = new();
     public IReadOnlyList<ProductAttribute> Attributes => _attributes;
 
+    private readonly List<GalleryImage> _gallery = new();
+    public IReadOnlyList<GalleryImage> Gallery => _gallery;
+
     private Product()
     {
     }
@@ -106,6 +109,30 @@ public class Product
         ImageContentType = contentType;
         ImageVersion = version;
     }
+
+    /// <summary>Returns false when the product already has this picture, as its main one or in the gallery.</summary>
+    public bool AddGalleryImage(string contentType, string version)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+            throw new ArgumentException("The picture's content type is required.", nameof(contentType));
+
+        if (string.IsNullOrWhiteSpace(version))
+            throw new ArgumentException("The picture's version is required.", nameof(version));
+
+        if (UsesPicture(version))
+            return false;
+
+        if (_gallery.Count >= GalleryImage.MaxPerProduct)
+            throw new InvalidOperationException($"A product can have at most {GalleryImage.MaxPerProduct} gallery pictures.");
+
+        _gallery.Add(new GalleryImage(version, contentType));
+        return true;
+    }
+
+    public bool RemoveGalleryImage(string version) => _gallery.RemoveAll(x => x.Version == version) > 0;
+
+    /// <summary>Whether the picture file of this version belongs to the product, as its main picture or in the gallery.</summary>
+    public bool UsesPicture(string version) => ImageVersion == version || _gallery.Any(x => x.Version == version);
 
     public void ClearImage()
     {
