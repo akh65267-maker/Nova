@@ -37,6 +37,7 @@ public class ProductRepository : IProductRepository
         bool includeArchived,
         string? brand,
         bool onSale,
+        IReadOnlyCollection<Guid>? ids,
         CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
@@ -67,6 +68,9 @@ public class ProductRepository : IProductRepository
         if (maxPrice.HasValue)
             query = WherePrice(query, effectivePrice, price => price <= maxPrice.Value);
 
+        if (ids is not null)
+            query = query.Where(x => ids.Contains(x.Id));
+
         if (onSale)
             query = query.Where(x => x.Discount != null
                 && (x.Discount.StartsAtUtc == null || x.Discount.StartsAtUtc <= now)
@@ -81,6 +85,17 @@ public class ProductRepository : IProductRepository
             ProductSortBy.PriceAscending => query.OrderBy(effectivePrice),
             ProductSortBy.PriceDescending => query.OrderByDescending(effectivePrice),
             ProductSortBy.NameAscending => query.OrderBy(x => x.Name),
+            // The share of the price taken off; the newest first among equal offers.
+            ProductSortBy.BestOffer => query
+                .OrderByDescending(x =>
+                    x.Discount == null
+                    || (x.Discount.StartsAtUtc != null && x.Discount.StartsAtUtc > now)
+                    || (x.Discount.EndsAtUtc != null && x.Discount.EndsAtUtc <= now)
+                        ? 0m
+                        : x.Discount.Kind == DiscountKind.Percent
+                            ? x.Discount.Value / 100
+                            : x.Discount.Value < x.Price ? x.Discount.Value / x.Price : 0m)
+                .ThenByDescending(x => x.CreatedAtUtc),
             _ => query.OrderByDescending(x => x.CreatedAtUtc),
         };
 

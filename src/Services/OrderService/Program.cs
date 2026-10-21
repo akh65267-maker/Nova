@@ -208,6 +208,12 @@ app.MapGet("/orders", async (
     return Results.Ok(orders);
 }).RequireAuthorization();
 
+// Public: the shop's "top selling" row. Only product ids, never figures or who bought.
+app.MapGet("/orders/top-selling", async (
+    int? limit,
+    OrderAnalyticsService analytics, CancellationToken cancellationToken) =>
+    Results.Ok(await analytics.GetTopSellingAsync(limit, cancellationToken)));
+
 app.MapGet("/orders/{id:guid}", async (
     Guid id,
     ClaimsPrincipal user,

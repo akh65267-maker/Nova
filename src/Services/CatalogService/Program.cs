@@ -91,6 +91,7 @@ app.MapGet("/products", async (
         "price-asc" => ProductSortBy.PriceAscending,
         "price-desc" => ProductSortBy.PriceDescending,
         "name" => ProductSortBy.NameAscending,
+        "best-offer" => ProductSortBy.BestOffer,
         _ => ProductSortBy.Newest,
     };
 
@@ -107,6 +108,7 @@ app.MapGet("/products", async (
         PageSize: pageSize,
         Brand: query["brand"].ToString() is { Length: > 0 } brand ? brand : null,
         OnSale: query["onSale"] == "true",
+        Ids: query["ids"].ToString() is { Length: > 0 } ids ? ParseIds(ids) : null,
         // Archived products are for the admin console only; anyone else asking gets the shop's list.
         IncludeArchived: query["includeArchived"] == "true" && httpRequest.HttpContext.User.IsInRole("Admin")), cancellationToken);
 
@@ -148,6 +150,14 @@ app.MapDelete("/categories/{id:guid}", async (
 
     return outcome == CategoryOutcome.Done ? Results.NoContent() : CategoryProblem(outcome);
 }).RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+// The ids in a comma-separated list; anything that is not an id is left out.
+static IReadOnlyCollection<Guid> ParseIds(string list) =>
+    list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(x => Guid.TryParse(x, out var id) ? id : (Guid?)null)
+        .OfType<Guid>()
+        .Take(100)
+        .ToList();
 
 static IResult CategoryProblem(CategoryOutcome outcome) => outcome switch
 {

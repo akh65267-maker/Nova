@@ -25,6 +25,7 @@ public sealed class ProductListQueryHandler : IRequestHandler<ProductListQuery, 
             request.IncludeArchived,
             request.Brand,
             request.OnSale,
+            request.Ids,
             cancellationToken);
 
         var now = DateTimeOffset.UtcNow;

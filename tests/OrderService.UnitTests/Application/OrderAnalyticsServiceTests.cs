@@ -13,6 +13,7 @@ public class OrderAnalyticsServiceTests
         public List<DailyPoint> Daily { get; } = new();
         public (DateTimeOffset CreatedBefore, DateTimeOffset Now, int Limit)? PendingCall { get; private set; }
         public (TopProductsBy By, int Limit)? TopCall { get; private set; }
+        public List<TopProduct> TopProducts { get; } = new();
         public (OrderStatus? Status, int Page, int PageSize)? OrdersCall { get; private set; }
 
         public Task<PeriodTotals> GetTotalsAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
@@ -37,7 +38,7 @@ public class OrderAnalyticsServiceTests
         {
             Calls.Add((from, to));
             TopCall = (by, limit);
-            return Task.FromResult<IReadOnlyList<TopProduct>>(Array.Empty<TopProduct>());
+            return Task.FromResult<IReadOnlyList<TopProduct>>(TopProducts);
         }
 
         public Task<IReadOnlyList<PendingOrder>> GetPendingAsync(DateTimeOffset createdBefore, DateTimeOffset now, int limit, CancellationToken cancellationToken = default)
@@ -209,6 +210,31 @@ public class OrderAnalyticsServiceTests
     {
         await Assert.ThrowsAsync<ArgumentException>(
             () => Service(new FakeAnalytics()).GetOrdersAsync(status, Start, Start.AddDays(1), page, pageSize));
+    }
+
+    [Fact]
+    public async Task TopSelling_ReturnsOnlyProductIds_FromTheLastThirtyDays_ByUnits()
+    {
+        var fake = new FakeAnalytics();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        fake.TopProducts.Add(new TopProduct(first, 9, 90m));
+        fake.TopProducts.Add(new TopProduct(second, 4, 40m));
+        var now = Start.AddDays(40);
+
+        var ids = await Service(fake, new FixedClock(now)).GetTopSellingAsync(null);
+
+        Assert.Equal(new[] { first, second }, ids);
+        Assert.Equal((TopProductsBy.Units, OrderAnalyticsService.DefaultTopSelling), fake.TopCall);
+        Assert.Equal((now.AddDays(-30), now), fake.Calls.Single());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(25)]
+    public async Task TopSelling_RejectsALimitOutOfRange(int limit)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => Service(new FakeAnalytics()).GetTopSellingAsync(limit));
     }
 
     private sealed class FixedClock : TimeProvider
