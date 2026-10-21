@@ -9,6 +9,9 @@ public class OrderAnalyticsService
 
     public const int MaxTopProducts = 50;
     public const int DefaultTopProducts = 10;
+    public const int MaxTopSelling = 24;
+    public const int DefaultTopSelling = 8;
+    public static readonly TimeSpan TopSellingWindow = TimeSpan.FromDays(30);
     public const int MaxPageSize = 100;
     public const int DefaultPageSize = 25;
     public const int MaxPending = 100;
@@ -82,6 +85,19 @@ public class OrderAnalyticsService
             throw new ArgumentException($"'limit' must be between 1 and {MaxTopProducts}.");
 
         return await _analytics.GetTopProductsAsync(start, end, order, count, cancellationToken);
+    }
+
+    /// <summary>The ids of the products customers bought most (units, confirmed orders) in the last 30 days, best first. Ids only: this is public.</summary>
+    public async Task<IReadOnlyList<Guid>> GetTopSellingAsync(int? limit, CancellationToken cancellationToken = default)
+    {
+        var count = limit ?? DefaultTopSelling;
+        if (count < 1 || count > MaxTopSelling)
+            throw new ArgumentException($"'limit' must be between 1 and {MaxTopSelling}.");
+
+        var end = _clock.GetUtcNow();
+        var top = await _analytics.GetTopProductsAsync(end - TopSellingWindow, end, TopProductsBy.Units, count, cancellationToken);
+
+        return top.Select(x => x.ProductId).ToList();
     }
 
     /// <summary>Pending orders older than <paramref name="minAgeSeconds"/>, oldest first: the "stuck" list.</summary>

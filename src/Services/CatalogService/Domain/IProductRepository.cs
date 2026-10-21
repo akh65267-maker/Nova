@@ -4,7 +4,7 @@ public interface IProductRepository
 {
     Task<IReadOnlyCollection<Product>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    /// <remarks>Prices, in filters and sorts, are what customers pay now; <paramref name="onSale"/> keeps products with an active discount.</remarks>
+    /// <remarks>Prices, in filters and sorts, are what customers pay now; <paramref name="onSale"/> keeps products with an active discount, <paramref name="ids"/> only those products, and BestOffer puts the deepest discount first.</remarks>
     Task<(IReadOnlyCollection<Product> Items, int TotalCount)> SearchAsync(
         string? category,
         decimal? minPrice,
@@ -16,6 +16,7 @@ public interface IProductRepository
         bool includeArchived,
         string? brand,
         bool onSale,
+        IReadOnlyCollection<Guid>? ids,
         CancellationToken cancellationToken = default);
     /// <summary>The brands of products on sale, by name, with how many products each has.</summary>
     Task<IReadOnlyCollection<(string Brand, int ProductCount)>> ListBrandsAsync(CancellationToken cancellationToken = default);

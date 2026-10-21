@@ -6,4 +6,5 @@ public enum ProductSortBy
     PriceAscending,
     PriceDescending,
     NameAscending,
+    BestOffer,
 }
