@@ -4,6 +4,7 @@ Compact, verified knowledge about this repository. **Source code is the ultimate
 
 | Read this | For |
 |---|---|
+| [full-guide.md](full-guide.md) | **How to run everything**: backend stack, migrations, shop and admin, catalog seeding, AI assistant, Storybook, tests, monitoring, a public demo link, troubleshooting |
 | [architecture.md](architecture.md) | System shape, gateway routing, ports, observability, build/CI |
 | [services.md](services.md) | What each service owns, endpoints, storage, resilience |
 | [messaging.md](messaging.md) | RabbitMQ/MassTransit contracts, producers/consumers, outbox/inbox, delivery guarantees |
