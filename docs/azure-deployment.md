@@ -154,7 +154,7 @@ Nothing below has been changed. Each would touch existing application code, so e
 | `/health/live` that ignores dependencies; a gateway `/health` | Proper liveness/readiness split | each `Program.cs` | TCP liveness probe |
 | Optional TLS and port for RabbitMQ | Lets a hosted broker work (User and Inventory hardcode port 5672, no TLS) | `Program.cs` of User, Inventory | RabbitMQ inside the environment |
 | Fail startup on the placeholder `Jwt:Key` outside Development (already in `TODO.md`) | Guards a mis-configured deploy | each `Program.cs` | The key always comes from Key Vault here |
-| Upgrade to a current .NET LTS | .NET 8 support ends in November 2026 (please verify the date) | `*.csproj`, Dockerfiles | none - plan it before production |
+| Upgrade to .NET 10 LTS | .NET 8 support ends in November 2026 (please verify the date) | `*.csproj`, Dockerfiles | none - plan it before production |
 
 Entra ID for **customers** (replacing UserService's self-issued JWT) is a much larger change than any above and is out of scope. Entra governs *operator* access only: Azure RBAC on the resources and Key Vault.
 
@@ -170,7 +170,7 @@ The template makes prod deployable. Before relying on it:
 - [ ] Tighten `postgresConnectionOptions` to `SSL Mode=VerifyFull` once the CA chain is confirmed.
 - [ ] Confirm every item under *Not verified* on staging first.
 - [ ] Review SKUs and cost in the Azure pricing calculator; this repository states no prices.
-- [ ] Plan the .NET upgrade.
+- [ ] Keep the .NET 10 SDK and runtime current with servicing updates.
 
 ## Files
 
