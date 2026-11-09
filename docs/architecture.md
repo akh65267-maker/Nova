@@ -1,6 +1,6 @@
 # Architecture
 
-.NET 8 microservices behind a YARP reverse proxy. Synchronous traffic is HTTP through the gateway; cross-service workflow is asynchronous over RabbitMQ (MassTransit). Each service owns its own storage. There is no shared database and no service-to-service HTTP call anywhere in the code.
+.NET 10 microservices behind a YARP reverse proxy. Synchronous traffic is HTTP through the gateway; cross-service workflow is asynchronous over RabbitMQ (MassTransit). Each service owns its own storage. There is no shared database and no service-to-service HTTP call anywhere in the code.
 
 ```text
 Browser / client
