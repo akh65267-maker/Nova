@@ -65,17 +65,12 @@ jobs:
       - name: Check InventoryService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/InventoryService
 
-      - name: Inspect remaining EF Core 10 migration deltas
-        run: |
-          set -e
-          for service in OrderService UserService TaskService; do
-            echo "===== $service ====="
-            dotnet ef migrations add Net10ModelUpdate --project "src/Services/$service" --output-dir Migrations
-            git --no-pager diff -- "src/Services/$service/Migrations"
-            cat "src/Services/$service/Migrations/"*"_Net10ModelUpdate.cs"
-            git status --short "src/Services/$service/Migrations"
-          done
-          exit 1
+      - name: Check OrderService migration drift
+        run: dotnet ef migrations has-pending-model-changes --project src/Services/OrderService
+      - name: Check UserService migration drift
+        run: dotnet ef migrations has-pending-model-changes --project src/Services/UserService
+      - name: Check TaskService migration drift
+        run: dotnet ef migrations has-pending-model-changes --project src/Services/TaskService
 
 
 
