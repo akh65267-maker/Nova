@@ -22,7 +22,7 @@ public class RedisBasketRepository : IBasketRepository
         var db = _redis.GetDatabase();
         var value = await db.StringGetAsync(KeyFor(userId));
 
-        return value.IsNullOrEmpty ? null : JsonSerializer.Deserialize<Basket>(value!, JsonOptions);
+        return value.IsNullOrEmpty ? null : JsonSerializer.Deserialize<Basket>((string)value!, JsonOptions);
     }
 
     public async Task SaveAsync(Basket basket, CancellationToken cancellationToken = default)
