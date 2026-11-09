@@ -62,12 +62,8 @@ jobs:
       - name: Check CatalogService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/CatalogService
 
-      - name: Generate and inspect InventoryService migration delta
-        run: |
-          dotnet ef migrations add Net10ModelUpdate --project src/Services/InventoryService --output-dir Migrations
-          git --no-pager diff -- src/Services/InventoryService/Migrations
-          git status --short src/Services/InventoryService/Migrations
-          git diff --exit-code -- src/Services/InventoryService/Migrations
+      - name: Check InventoryService migration drift
+        run: dotnet ef migrations has-pending-model-changes --project src/Services/InventoryService
 
       - name: Check OrderService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/OrderService
