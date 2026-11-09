@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 # Where product pictures live (a volume in docker-compose). Created here, owned by the app user, so
 # the volume starts out writable by it.
 RUN mkdir -p /data/product-images && chown $APP_UID /data/product-images
@@ -7,7 +7,7 @@ WORKDIR /app
 EXPOSE 8080
 EXPOSE 8081
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["Services/CatalogService/CatalogService.csproj", "Services/CatalogService/"]
