@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Restore NuGet packages
         run: dotnet restore NovaCommerce.slnx
@@ -42,10 +42,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Restore NuGet packages and local tools
         # dotnet-ef is declared in .config/dotnet-tools.json; tool restore
@@ -67,15 +67,17 @@ jobs:
 
       - name: Check OrderService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/OrderService
-
       - name: Check UserService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/UserService
+      - name: Check TaskService migration drift
+        run: dotnet ef migrations has-pending-model-changes --project src/Services/TaskService
+
+
 
       # TaskService is excluded from normal analysis (see docs/README.md)
       # but its migrations are checked here because a broken schema is an
       # operational failure regardless of documentation scope.
-      - name: Check TaskService migration drift
-        run: dotnet ef migrations has-pending-model-changes --project src/Services/TaskService
+
 
   integration-tests:
     runs-on: ubuntu-latest
@@ -87,10 +89,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Restore NuGet packages
         run: dotnet restore NovaCommerce.slnx
