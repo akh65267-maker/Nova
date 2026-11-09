@@ -65,17 +65,24 @@ jobs:
       - name: Check InventoryService migration drift
         run: dotnet ef migrations has-pending-model-changes --project src/Services/InventoryService
 
-      - name: Check OrderService migration drift
-        run: dotnet ef migrations has-pending-model-changes --project src/Services/OrderService
+      - name: Inspect remaining EF Core 10 migration deltas
+        run: |
+          set -e
+          for service in OrderService UserService TaskService; do
+            echo "===== $service ====="
+            dotnet ef migrations add Net10ModelUpdate --project "src/Services/$service" --output-dir Migrations
+            git --no-pager diff -- "src/Services/$service/Migrations"
+            cat "src/Services/$service/Migrations/"*"_Net10ModelUpdate.cs"
+            git status --short "src/Services/$service/Migrations"
+          done
+          exit 1
 
-      - name: Check UserService migration drift
-        run: dotnet ef migrations has-pending-model-changes --project src/Services/UserService
+
 
       # TaskService is excluded from normal analysis (see docs/README.md)
       # but its migrations are checked here because a broken schema is an
       # operational failure regardless of documentation scope.
-      - name: Check TaskService migration drift
-        run: dotnet ef migrations has-pending-model-changes --project src/Services/TaskService
+
 
   integration-tests:
     runs-on: ubuntu-latest
