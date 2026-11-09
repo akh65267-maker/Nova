@@ -19,6 +19,8 @@
     <PackageReference Include="MassTransit" Version="9.2.0" />
     <PackageReference Include="MassTransit.RabbitMQ" Version="9.2.0" />
     <PackageReference Include="MassTransit.EntityFrameworkCore" Version="9.2.0" />
+    <!-- Override the vulnerable transitive SSH.NET version pulled into the Testcontainers dependency graph. -->
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="3.10.0" />
     <PackageReference Include="Testcontainers.RabbitMq" Version="3.10.0" />
   </ItemGroup>
